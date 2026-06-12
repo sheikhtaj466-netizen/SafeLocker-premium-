@@ -61,20 +61,24 @@ export default function ActivityLogScreen({ navigation }) {
     processAndGroupLogs();
   }, [searchQuery, activeTab, activeModule, rawLogs]);
 
-  // 🧠 SMART PRIORITY ENGINE (100% FALLBACK SAFE & PASSKEY AWARE)
+  // 🧠 SMART PRIORITY ENGINE (Now fully supports Files & Tools)
   const sanitizeLog = (rawLog) => {
     const act = String(rawLog.action || '').toUpperCase();
     const rawMod = String(rawLog.module || 'System').trim().toUpperCase();
     let mod = String(rawLog.module || 'System').trim();
 
-    // 🚀 SENIOR DEV FIX: Hyper-aware Module Routing for Security/Passkey/Auth
+    // 🚀 NEW: Intelligent Module Routing for Files, Tools & Security
     if (rawMod.includes('PASSKEY') || act.includes('PASSKEY') || act.includes('BIOMETRIC') || act.includes('FINGERPRINT')) {
       mod = 'Security'; 
     } else if (rawMod.includes('COPY') || act.includes('COPY') || act.includes('COPIED')) {
       mod = 'Security';
     } else if (rawMod.includes('LOGIN') || rawMod.includes('AUTH') || act.includes('PIN') || act.includes('UNLOCK')) {
-      mod = 'Security'; // Merged Auth into Security for cleaner filtering chips
-    } else if (rawMod.includes('GALLERY') || act.includes('IMAGE') || act.includes('EXPORT')) {
+      mod = 'Security'; 
+    } else if (rawMod.includes('FILE') || rawMod.includes('DOCUMENT') || rawMod.includes('STORAGE')) {
+      mod = 'Files'; // 🚀 FILES MODULE ADDED
+    } else if (rawMod.includes('TOOL') || rawMod.includes('GENERATOR') || act.includes('GENERATED')) {
+      mod = 'Tools'; // 🚀 TOOLS MODULE ADDED
+    } else if (rawMod.includes('GALLERY') || rawMod.includes('SCAN') || act.includes('IMAGE')) {
       mod = 'Gallery';
     } else if (rawMod.includes('VAULT') || act.includes('ENTRY')) {
       mod = 'Vault';
@@ -104,14 +108,14 @@ export default function ActivityLogScreen({ navigation }) {
       if(act.includes('PIN_CHANGED') || act.includes('RESET')) { icon = 'key'; bg = '#DBEAFE'; text = '#3B82F6'; }
       if(act.includes('RECOVERY_CODE')) { icon = 'shield'; bg = '#DBEAFE'; text = '#3B82F6'; }
     }
-    // 🟪 PASSKEY & BIOMETRIC ACTIONS (NEW FIX)
+    // 🟪 PASSKEY & BIOMETRIC ACTIONS
     else if (act.includes('PASSKEY') || act.includes('BIOMETRIC') || act.includes('AUTH') || rawMod.includes('PASSKEY')) {
       if (act.includes('FAILED') || act.includes('ERROR') || act.includes('REJECT')) {
         priority = 'CRITICAL'; bg = '#FFF1F2'; text = '#EF4444'; icon = 'alert-circle'; label = 'Auth Failed';
       } else if (act.includes('DISABLE') || act.includes('REMOVE')) {
         priority = 'IMPORTANT'; bg = '#FEF2F2'; text = '#F97316'; icon = 'shield-off';
       } else {
-        priority = 'IMPORTANT'; bg = '#F3E8FF'; text = '#8B5CF6'; icon = 'fingerprint'; // Premium Purple for Passkey
+        priority = 'IMPORTANT'; bg = '#F3E8FF'; text = '#8B5CF6'; icon = 'fingerprint';
       }
     }
     // 🟨 IMPORTANT ACTIONS
@@ -134,8 +138,16 @@ export default function ActivityLogScreen({ navigation }) {
       priority = 'WORKFLOW'; label = 'Vault Unlocked'; bg = '#F3F4F6'; text = '#4B5563'; icon = 'unlock'; 
     }
     else {
-      // Catch-all for random clicks and events to make them look premium
-      priority = 'INFO'; bg = isDark ? '#1F2937' : '#F9FAFB'; text = isDark ? '#9CA3AF' : '#4B5563'; icon = 'radio';
+      priority = 'INFO'; 
+      bg = isDark ? '#1F2937' : '#F9FAFB'; 
+      text = isDark ? '#9CA3AF' : '#4B5563'; 
+      icon = 'radio';
+      
+      // 🚀 NEW: Smart Premium Fallback Icons for Files & Tools
+      if (mod === 'Files') { icon = 'file'; bg = isDark ? 'rgba(59, 130, 246, 0.15)' : '#EFF6FF'; text = isDark ? '#93C5FD' : '#2563EB'; }
+      if (mod === 'Tools') { icon = 'tool'; bg = isDark ? 'rgba(13, 148, 136, 0.15)' : '#CCFBF1'; text = isDark ? '#5EEAD4' : '#0D9488'; }
+      if (mod === 'Vault') { icon = 'shield'; bg = isDark ? 'rgba(79, 70, 229, 0.15)' : '#EEF2FF'; text = isDark ? '#A5B4FC' : '#4F46E5'; }
+      if (mod === 'Gallery') { icon = 'image'; bg = isDark ? 'rgba(124, 58, 237, 0.15)' : '#F3E8FF'; text = isDark ? '#C4B5FD' : '#7C3AED'; }
     }
 
     label = label.replace(/\w\S*/g, (w) => (w.replace(/^\w/, (c) => c.toUpperCase())));
@@ -152,7 +164,6 @@ export default function ActivityLogScreen({ navigation }) {
         const sanitizedData = sorted.map(log => sanitizeLog(log));
         setRawLogs(sanitizedData);
         
-        // Pin minimum 6 critical logs
         const criticals = sanitizedData.filter(l => l.priority === 'CRITICAL').slice(0, 6);
         setPinnedLogs(criticals);
       } else { setRawLogs([]); setPinnedLogs([]); }
@@ -171,20 +182,15 @@ export default function ActivityLogScreen({ navigation }) {
     return `${d.getDate().toString().padStart(2, '0')} ${months[d.getMonth()]} ${d.getFullYear()} • ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`;
   };
 
-  // 🧬 ADVANCED STRICT FILTERING (100% UNFILTERED FOR 'ALL LOGS')
   const processAndGroupLogs = () => {
     let filtered = [...rawLogs];
-    
     const noisyKeywords = ['VIEW', 'SWIPE', 'TAB', 'SORT', 'SEARCH', 'SCROLL', 'OPENED', 'NAVIGATE'];
     
     if (activeTab === 'Main Logs') {
       filtered = filtered.filter(l => {
         const act = String(l.action||'').toUpperCase();
-        // ❌ FORCE EXCLUDE NOISE & MINOR UI CHANGES FOR MAIN LOGS
         if (noisyKeywords.some(kw => act.includes(kw))) return false;
         if (act === 'THEME_CHANGED' || act === 'AUTO_LOCK_UPDATED' || act.includes('PRIVACY_TOGGLED') || act.includes('LOCK_ON_EXIT')) return false;
-
-        // ✅ ONLY INCLUDE HIGH LEVEL ACTIONS
         return l.priority === 'CRITICAL' || l.priority === 'IMPORTANT' || l.priority === 'WORKFLOW';
       });
     } 
@@ -192,16 +198,11 @@ export default function ActivityLogScreen({ navigation }) {
       filtered = filtered.filter(l => {
         const mod = l.moduleDisplay.toUpperCase();
         const act = String(l.action||'').toUpperCase();
-        // 🚀 SENIOR DEV FIX: Security tab explicitly catches Passkey events now
         return mod === 'SECURITY' || mod === 'SETTINGS' || mod === 'AUTH' || 
                l.priority === 'CRITICAL' || act.includes('PIN') || act.includes('LOCK') || 
                act.includes('DECOY') || act.includes('COPY') || act.includes('WIPE') || 
                act.includes('PASSKEY') || act.includes('BIO') || act.includes('AUTH');
       });
-    }
-    else if (activeTab === 'All Logs') {
-      // 🚀 SENIOR DEV FIX: ZERO FILTERS. Let literally everything pass through.
-      filtered = rawLogs;
     }
 
     if (activeModule !== 'All') {
@@ -362,8 +363,9 @@ export default function ActivityLogScreen({ navigation }) {
           ))}
         </View>
 
+        {/* 🚀 NEW: Files and Tools added dynamically to chips */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.moduleFilterScroll}>
-          {['All', 'Vault', 'Gallery', 'Scan', 'Settings', 'Security', 'System'].map(mod => (
+          {['All', 'Vault', 'Gallery', 'Files', 'Tools', 'Settings', 'Security', 'System'].map(mod => (
             <TouchableOpacity key={mod} onPress={() => { Haptics.selectionAsync(); setActiveModule(mod); }} style={[styles.moduleFilterChip, activeModule === mod ? {backgroundColor: themeColors.primaryLight} : {backgroundColor: isDark ? themeColors.inputBg : '#FFF', borderWidth: 1, borderColor: isDark ? themeColors.separator : '#E5E7EB'}]}>
               <Text style={{fontSize: 13, fontWeight: '700', color: activeModule === mod ? themeColors.primary : themeColors.textLight}}>{mod}</Text>
             </TouchableOpacity>

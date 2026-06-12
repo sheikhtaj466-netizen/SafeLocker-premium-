@@ -1,41 +1,44 @@
-// File: App.js
 import 'react-native-gesture-handler'; // 🚀 STRICT RULE: Ye hamesha line 1 pe hona chahiye!
 import React, { useEffect, useRef, useState } from 'react';
-import { AppState, View, StyleSheet } from 'react-native';
+import { AppState, View, StyleSheet, ActivityIndicator } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ThemeProvider } from './src/ThemeContext';
 import { getSettings } from './src/utils/storage';
+import { initDB } from './src/utils/database'; 
 
-import LockScreen from './src/screens/LockScreen';
-import MainDashboard from './src/screens/MainDashboard';
-import FormScreen from './src/screens/FormScreen'; 
-import EntryDetailScreen from './src/screens/EntryDetailScreen'; 
-import SelectTypeScreen from './src/screens/SelectTypeScreen'; 
-import EmailSetupScreen from './src/screens/EmailSetupScreen';
-import ActivityLogScreen from './src/screens/ActivityLogScreen';
-import DeveloperScreen from './src/screens/DeveloperScreen';
-import CreateTypeScreen from './src/screens/CreateTypeScreen';
-import PreferredActionsScreen from './src/screens/PreferredActionsScreen';
-import PasskeyManagementScreen from './src/screens/PasskeyManagementScreen';
+// 🔥 NAVIGATION FIX: Aapka banaya hua AppNavigator yahan import kiya hai
+import AppNavigator from './src/navigation/AppNavigator';
 
-const Stack = createNativeStackNavigator();
 export const navigationRef = createNavigationContainerRef();
 
 export default function App() {
   const appState = useRef(AppState.currentState);
   const backgroundTime = useRef(null);
   
-  // 🚀 SENIOR DEV FIX: Global Blur State
   const [appIsInactive, setAppIsInactive] = useState(false);
   const [blurEnabled, setBlurEnabled] = useState(true);
 
+  // 🔥 LAG & STUCK FIX: Database ready hone tak app ko rokne ke liye state
+  const [isDbReady, setIsDbReady] = useState(false);
+
   useEffect(() => {
+    // 🚀 STEP 1: App khulte hi Database ready karo aur WAIT karo
+    const setupDatabase = async () => {
+      try {
+        await initDB();
+        setIsDbReady(true); // Jab DB ready ho jaye, tabhi app start karo
+      } catch (error) {
+        console.error("Database Init Error:", error);
+        setIsDbReady(true); // Error aaye toh bhi app stuck na ho
+      }
+    };
+    
+    setupDatabase();
+
     const checkBlurSettings = async () => {
       const s = await getSettings();
       if (s && s.blurRecents !== undefined) {
@@ -59,7 +62,7 @@ export default function App() {
           const timeAwaySeconds = (Date.now() - backgroundTime.current) / 1000;
           
           const settings = await getSettings();
-          let timeLimit = 120; // 🚀 SENIOR DEV FIX: Default is now 2 minutes (120 seconds)
+          let timeLimit = 120; // Default 2 minutes
           
           if (settings?.autoLockTimer === '30 sec') timeLimit = 30;
           if (settings?.autoLockTimer === '1 min') timeLimit = 60;
@@ -87,32 +90,27 @@ export default function App() {
     return () => subscription.remove();
   }, []);
 
+  // 🔥 Jab tak database load nahi hota, loader dikhao
+  if (!isDbReady) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#121212' }}>
+        <ActivityIndicator size="large" color="#6C63FF" />
+      </View>
+    );
+  }
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider>
           <NavigationContainer ref={navigationRef}>
-            <Stack.Navigator 
-              initialRouteName="Lock" 
-              screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
-            >
-              <Stack.Screen name="Lock" component={LockScreen} />
-              <Stack.Screen name="MainDashboard" component={MainDashboard} />
-              <Stack.Screen name="SelectType" component={SelectTypeScreen} />
-              <Stack.Screen name="CreateType" component={CreateTypeScreen} />
-              <Stack.Screen name="Form" component={FormScreen} />
-              <Stack.Screen name="EntryDetail" component={EntryDetailScreen} />
-              <Stack.Screen name="EmailSetup" component={EmailSetupScreen} />
-              <Stack.Screen name="ActivityLog" component={ActivityLogScreen} />
-              <Stack.Screen name="Developer" component={DeveloperScreen} />
-              <Stack.Screen name="PreferredActions" component={PreferredActionsScreen} />
-              <Stack.Screen name="PasskeyManagement" component={PasskeyManagementScreen} />
-            </Stack.Navigator>
+            {/* 🔥 Yahan pura purana stack hatakar apka real AppNavigator daal diya */}
+            <AppNavigator />
           </NavigationContainer>
         </ThemeProvider>
       </SafeAreaProvider>
 
-      {/* 🚀 SENIOR DEV FIX: Global Blur Overlay for Recents */}
+      {/* Global Blur Overlay for Recents */}
       {appIsInactive && blurEnabled && (
         <View style={StyleSheet.absoluteFill} pointerEvents="none">
           <BlurView intensity={100} tint="dark" style={StyleSheet.absoluteFill} />

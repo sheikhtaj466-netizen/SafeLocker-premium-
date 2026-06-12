@@ -32,7 +32,30 @@
       }
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      "expo-sqlite",
+      "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow SafeLocker to use Face ID / Biometrics for unlocking."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow SafeLocker to access camera for scanning QR codes."
+        }
+      ],
+      "expo-image-picker",
+      "expo-document-picker",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow SafeLocker to save photos to your device gallery.",
+          "savePhotosPermission": "Allow SafeLocker to save exported photos to your device gallery."
+        }
+      ]
     ]
   }
 }

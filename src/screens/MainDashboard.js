@@ -1,28 +1,28 @@
 // File: src/screens/MainDashboard.js
-import React, { useRef, useContext, useState, useEffect, useMemo } from 'react'; // 🔥 SMART FIX: Added useMemo here!
+import React, { useRef, useContext, useState, useEffect, useMemo } from 'react'; 
 import { 
-  View, StyleSheet, Animated, Dimensions, 
+  View, Text, StyleSheet, Animated, Dimensions, 
   TouchableOpacity, Platform, Keyboard, FlatList 
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ThemeContext } from '../ThemeContext';
+import { getSessionMode } from '../utils/storage'; // 🚀 ADDED TO DETECT MODE
 
 import VaultScreen from './VaultScreen';
 import ScanScreen from './ScanScreen';
+import FilesScreen from './FilesScreen'; 
+import ToolsScreen from './ToolsScreen'; 
 import SettingsScreen from './SettingsScreen';
 
 const { width } = Dimensions.get('window');
-
-// 🔥 Create an Animated version of FlatList
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
-// 📐 ULTRA PREMIUM SLIM METRICS
 const NAV_HEIGHT = 72; 
-const PILL_WIDTH = 104; 
+const PILL_WIDTH = 68; 
 const PILL_HEIGHT = 46; 
-const TAB_WIDTH = (width - 32) / 3; 
+const TAB_WIDTH = (width - 32) / 5; 
 const PILL_OFFSET = (TAB_WIDTH - PILL_WIDTH) / 2;
 
 export default function MainDashboard({ navigation }) {
@@ -33,12 +33,14 @@ export default function MainDashboard({ navigation }) {
   const flatListRef = useRef(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isScrollEnabled, setIsScrollEnabled] = useState(true);
+  const [isDecoy, setIsDecoy] = useState(false); // 🚀 TRACK DECOY STATE
 
-  // Screens Array for FlatList
   const screens = useMemo(() => [
-    { key: 'vault', component: <VaultScreen navigation={navigation} /> },
-    { key: 'gallery', component: <ScanScreen navigation={navigation} /> },
-    { key: 'settings', component: <SettingsScreen navigation={navigation} /> }
+    { key: 'vault', component: <VaultScreen navigation={navigation} setSwipeEnabled={setIsScrollEnabled} /> },
+    { key: 'gallery', component: <ScanScreen navigation={navigation} setSwipeEnabled={setIsScrollEnabled} /> },
+    { key: 'files', component: <FilesScreen navigation={navigation} setSwipeEnabled={setIsScrollEnabled} /> },
+    { key: 'tools', component: <ToolsScreen setSwipeEnabled={setIsScrollEnabled} /> }, 
+    { key: 'settings', component: <SettingsScreen navigation={navigation} setSwipeEnabled={setIsScrollEnabled} /> }
   ], [navigation]);
 
   useEffect(() => {
@@ -47,15 +49,28 @@ export default function MainDashboard({ navigation }) {
     return () => { kbShow.remove(); kbHide.remove(); };
   }, []);
 
+  useEffect(() => {
+    // 🚀 FETCH DECOY STATE
+    const checkMode = async () => {
+      const mode = await getSessionMode();
+      setIsDecoy(mode === 'LIMITED');
+    };
+    checkMode();
+  }, []);
+
   const handleTabPress = (index) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); 
-    // 🔥 FlatList specific scroll method
     flatListRef.current?.scrollToIndex({ index, animated: true });
   };
 
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50 }).current;
+  const onViewableItemsChanged = useRef(({ viewableItems }) => {
+    if (viewableItems.length > 0) setCurrentIndex(viewableItems[0].index);
+  }).current;
+
   const pillTranslateX = scrollX.interpolate({
-    inputRange: [0, width, width * 2],
-    outputRange: [PILL_OFFSET, TAB_WIDTH + PILL_OFFSET, TAB_WIDTH * 2 + PILL_OFFSET],
+    inputRange: [0, width, width * 2, width * 3, width * 4],
+    outputRange: [PILL_OFFSET, TAB_WIDTH + PILL_OFFSET, (TAB_WIDTH * 2) + PILL_OFFSET, (TAB_WIDTH * 3) + PILL_OFFSET, (TAB_WIDTH * 4) + PILL_OFFSET],
     extrapolate: 'clamp'
   });
 
@@ -90,79 +105,47 @@ export default function MainDashboard({ navigation }) {
 
   const activeColor = '#FFFFFF'; 
   const inactiveColor = isDark ? '#8A8A8A' : '#9AA0A6'; 
-  const primaryAccent = themeColors?.primary || '#12C7B2';
+  const primaryAccent = themeColors?.primary || '#6C5CE7';
 
   return (
     <View style={[styles.container, { backgroundColor: isDark ? '#000000' : '#F8F8FB' }]}>
       
-      {/* 🔥 SMART FIX: Replaced ScrollView with AnimatedFlatList to solve VirtualizedList Error */}
+      {/* 🚀 DECOY BANNER */}
+      {isDecoy && (
+        <View style={{ paddingTop: insets.top, backgroundColor: '#EF4444', alignItems: 'center', paddingBottom: 6 }}>
+          <Text style={{ color: '#FFF', fontSize: 11, fontWeight: '900', letterSpacing: 2 }}>DECOY MODE ACTIVE</Text>
+        </View>
+      )}
+
       <AnimatedFlatList
-        ref={flatListRef}
-        data={screens}
-        keyExtractor={(item) => item.key}
-        horizontal 
-        pagingEnabled 
-        scrollEnabled={isScrollEnabled}
-        showsHorizontalScrollIndicator={false} 
-        scrollEventThrottle={16} 
-        bounces={true} 
-        initialNumToRender={3} 
+        ref={flatListRef} data={screens} keyExtractor={(item) => item.key}
+        horizontal pagingEnabled scrollEnabled={isScrollEnabled} 
+        showsHorizontalScrollIndicator={false} scrollEventThrottle={16} 
+        bounces={false} initialNumToRender={1} maxToRenderPerBatch={2} windowSize={3}
+        removeClippedSubviews={Platform.OS === 'android'}
         getItemLayout={(data, index) => ({ length: width, offset: width * index, index })}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { x: scrollX } } }], 
-          { 
-            useNativeDriver: false,
-            listener: (event) => {
-              const offsetX = event.nativeEvent.contentOffset.x;
-              const newIndex = Math.round(offsetX / width);
-              if (currentIndex !== newIndex) {
-                setCurrentIndex(newIndex);
-              }
-            }
-          } 
-        )}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], { useNativeDriver: true })}
+        onViewableItemsChanged={onViewableItemsChanged} viewabilityConfig={viewabilityConfig}
         renderItem={({ item, index }) => (
-          <Animated.View style={getScreenStyle(index)}>
-            {item.component}
-          </Animated.View>
+          <Animated.View style={getScreenStyle(index)}>{item.component}</Animated.View>
         )}
       />
 
-      {/* 🧭 PREMIUM SLIM NAV */}
-      <View style={[
-        styles.bottomNav, 
-        { 
-          backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF', 
-          bottom: Platform.OS === 'ios' ? insets.bottom || 12 : 12,
-          shadowColor: isDark ? '#000' : 'rgba(17, 24, 39, 0.06)'
-        }
-      ]}>
-        
-        {/* 🎴 SLIM ROUNDED RECTANGLE PILL */}
-        <Animated.View 
-          style={[
-            styles.activePill, 
-            { 
-              transform: [{ translateX: pillTranslateX }],
-              backgroundColor: primaryAccent, 
-              shadowColor: primaryAccent 
-            }
-          ]} 
-        />
-
-        {[0, 1, 2].map((idx) => {
-          const icons = ['shield', 'grid', 'settings'];
-          const labels = ['Vault', 'Gallery', 'Settings'];
+      <View style={[styles.bottomNav, { backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF', bottom: Platform.OS === 'ios' ? insets.bottom || 12 : 12, shadowColor: isDark ? '#000' : 'rgba(17, 24, 39, 0.06)' }]}>
+        <Animated.View style={[styles.activePill, { transform: [{ translateX: pillTranslateX }], backgroundColor: primaryAccent, shadowColor: primaryAccent }]} />
+        {[0, 1, 2, 3, 4].map((idx) => {
+          const icons = ['shield', 'grid', 'folder', 'briefcase', 'settings']; 
+          const labels = ['Vault', 'Gallery', 'Files', 'Tools', 'Settings'];
           return (
             <TouchableOpacity key={idx} style={styles.navItem} activeOpacity={1} onPress={() => handleTabPress(idx)}>
               <Animated.View style={{ alignItems: 'center', transform: [{ scale: getIconScale(idx) }, { translateY: getIconTranslateY(idx) }] }}>
                 <View style={styles.iconWrapper}>
-                  <Animated.View style={{ position: 'absolute', opacity: getInactiveOpacity(idx) }}><Feather name={icons[idx]} size={20} color={inactiveColor} /></Animated.View>
-                  <Animated.View style={{ position: 'absolute', opacity: getActiveOpacity(idx) }}><Feather name={icons[idx]} size={20} color={activeColor} /></Animated.View>
+                  <Animated.View style={{ position: 'absolute', opacity: getInactiveOpacity(idx) }}><Feather name={icons[idx]} size={18} color={inactiveColor} /></Animated.View>
+                  <Animated.View style={{ position: 'absolute', opacity: getActiveOpacity(idx) }}><Feather name={icons[idx]} size={18} color={activeColor} /></Animated.View>
                 </View>
                 <View style={styles.textWrapper}>
-                  <Animated.Text style={[styles.navText, { opacity: getInactiveOpacity(idx), color: inactiveColor }]}>{labels[idx]}</Animated.Text>
-                  <Animated.Text style={[styles.navText, { opacity: getActiveOpacity(idx), color: activeColor, position: 'absolute' }]}>{labels[idx]}</Animated.Text>
+                  <Animated.Text style={[styles.navText, { opacity: getInactiveOpacity(idx), color: inactiveColor, fontSize: 11 }]}>{labels[idx]}</Animated.Text>
+                  <Animated.Text style={[styles.navText, { opacity: getActiveOpacity(idx), color: activeColor, position: 'absolute', fontSize: 11 }]}>{labels[idx]}</Animated.Text>
                 </View>
               </Animated.View>
             </TouchableOpacity>
@@ -176,23 +159,12 @@ export default function MainDashboard({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   bottomNav: { 
-    flexDirection: 'row', alignItems: 'center', 
-    height: NAV_HEIGHT, borderRadius: 24, position: 'absolute', left: 16, right: 16, zIndex: 100, 
+    flexDirection: 'row', alignItems: 'center', height: NAV_HEIGHT, borderRadius: 24, position: 'absolute', left: 16, right: 16, zIndex: 100, 
     shadowOffset: { width: 0, height: 8 }, shadowOpacity: 1, shadowRadius: 16, elevation: 8
   }, 
   navItem: { alignItems: 'center', justifyContent: 'center', flex: 1, height: '100%', zIndex: 2 }, 
   iconWrapper: { width: 22, height: 22, justifyContent: 'center', alignItems: 'center' }, 
   textWrapper: { height: 16, justifyContent: 'center', alignItems: 'center', marginTop: 4 },
-  navText: { fontSize: 13, fontWeight: '600' }, 
-  activePill: { 
-    position: 'absolute', 
-    width: PILL_WIDTH, 
-    height: PILL_HEIGHT, 
-    borderRadius: 23, 
-    zIndex: 1,
-    shadowOffset: { width: 0, height: 4 }, 
-    shadowOpacity: 0.1, 
-    shadowRadius: 6, 
-    elevation: 3
-  }
+  navText: { fontWeight: '600' }, 
+  activePill: { position: 'absolute', width: PILL_WIDTH, height: PILL_HEIGHT, borderRadius: 23, zIndex: 1, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 3 }
 });

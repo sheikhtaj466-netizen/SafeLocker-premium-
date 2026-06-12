@@ -1,222 +1,211 @@
 // File: src/utils/backup.js
 import * as FileSystem from 'expo-file-system/legacy';
 import * as DocumentPicker from 'expo-document-picker';
-import { Platform } from 'react-native';
-import CryptoJS from 'crypto-js';
+import * as Sharing from 'expo-sharing'; 
 
-const API_BASE_URL = 'https://safelockers.sheikhtaj3010.workers.dev'; 
-
-CryptoJS.lib.WordArray.random = function (nBytes) {
-  const words = [];
-  for (let i = 0; i < nBytes; i += 4) { words.push((Math.random() * 0x100000000) | 0); }
-  return CryptoJS.lib.WordArray.create(words, nBytes);
-};
-
+import { getDB } from './database';
+import { CryptoEngine } from './cryptoEngine';
 import { 
-  getVaultData, saveVaultData, getCustomTypes, saveCustomTypes, 
-  getMasterPin, getRecoveryCode, getRecoveryEmail, getCurrentDeviceId 
+    getMasterPin, 
+    getCustomTypes, 
+    getGalleryPhotos, 
+    getGalleryCollections, 
+    saveGalleryPhotos, 
+    saveGalleryCollections 
 } from './storage';
 
-const ENVELOPE_SALT = "SafeLocker_Ultra_Secure_V5_Salt_2026";
+// 🚀 SECRET UNIVERSAL APP PIN (Koi purana password nahi chahiye)
+const SECRET_UNIVERSAL_PIN = "SafeLocker_Universal_Bypass_08_System";
 
-const fetchWithTimeout = async (resource, options = {}) => {
-  const { timeout = 15000 } = options;
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeout);
-  const response = await fetch(resource, { ...options, signal: controller.signal });
-  clearTimeout(id);
-  return response;
-};
-
-// 🔥 MERGE HELPER FUNCTION: Dono backup aur existing data ko merge karne ke liye
-const mergeVaultData = async (importedVaultData) => {
-  try {
-    const existingData = await getVaultData() || [];
-    const combinedData = [...importedVaultData, ...existingData]; 
-    
-    // Duplicates ko unique id ke base pe hatana (latest wale ko rakhega)
-    const uniqueData = combinedData.filter((item, index, self) =>
-      index === self.findIndex((t) => t.id === item.id)
-    );
-    return uniqueData;
-  } catch (err) {
-    console.error("Merge error:", err);
-    return importedVaultData; // Agar fail ho toh bas import wala data de do
-  }
-};
-
-const mergeCustomTypes = async (importedCustomTypes) => {
+export const exportBackup = async (label = "Manual Backup", isAuto = false, onProgress) => {
     try {
-      const existingTypes = await getCustomTypes() || [];
-      const combinedTypes = [...importedCustomTypes, ...existingTypes]; 
-      
-      const uniqueTypes = combinedTypes.filter((item, index, self) =>
-        index === self.findIndex((t) => t.id === item.id)
-      );
-      return uniqueTypes;
-    } catch (err) {
-      console.error("Merge error:", err);
-      return importedCustomTypes;
-    }
-  };
+       onProgress(10);
+       const db = getDB();
+       
+       const currentPin = await getMasterPin();
+       const currentVaultKey = await CryptoEngine.getVaultKey(currentPin);
+       
+       // 1. Get SQLite Data
+       const entries = db.getAllSync('SELECT * FROM entries');
+       const folders = db.getAllSync('SELECT * FROM folders');
+       const files = db.getAllSync('SELECT * FROM files');
+       
+       // 2. Get ScanScreen (Gallery) Data 🚀 FIX YAHAN HAI
+       const galleryPhotos = await getGalleryPhotos();
+       const galleryCollections = await getGalleryCollections();
+       
+       onProgress(30);
+       
+       // 3. Pack SQLite Files to Base64
+       const dbFilesWithData = [];
+       for (let i = 0; i < files.length; i++) {
+           const f = files[i];
+           try {
+              const b64 = await FileSystem.readAsStringAsync(f.uri, { encoding: 'base64' });
+              const clearName = CryptoEngine.decryptData(f.name_enc, currentVaultKey) || f.name_enc;
+              
+              dbFilesWithData.push({ ...f, _base64Data: b64, originalName: clearName });
+           } catch(e) { console.log("File read error: ", f.uri); }
+       }
+       
+       onProgress(50);
 
-export const exportBackup = async (pinHint = "No hint set", isEmergencyReset = false) => {
-  try {
-    const email = await getRecoveryEmail();
-    const safeEmail = (typeof email === 'string' && email.includes('@')) ? email.toLowerCase().trim() : '';
-    if (!safeEmail) return { success: false, message: 'No email linked!' };
+       // 4. Pack ScanScreen Gallery Photos to Base64 🚀 FIX
+       const galleryPhotosWithData = [];
+       for (let i = 0; i < galleryPhotos.length; i++) {
+           const gp = galleryPhotos[i];
+           try {
+               const b64 = await FileSystem.readAsStringAsync(gp.uri, { encoding: 'base64' });
+               galleryPhotosWithData.push({ ...gp, _base64Data: b64 });
+           } catch(e) { console.log("Gallery photo read error: ", gp.uri); }
+       }
 
-    const masterPin = await getMasterPin() || 'DEFAULT_PIN';
-    const recoveryCode = await getRecoveryCode();
-    const vaultData = await getVaultData() || [];
-    const customTypes = await getCustomTypes() || [];
-    const deviceId = await getCurrentDeviceId() || 'UNKNOWN_DEVICE';
+       onProgress(70);
+       
+       // Lock with Universal Key
+       const universalMasterKey = CryptoEngine.deriveKeyFromPin(SECRET_UNIVERSAL_PIN);
+       const universalEncryptedVaultKey = CryptoEngine.encryptData(currentVaultKey, universalMasterKey);
+       
+       const payload = {
+           version: 'v12_ultimate_fix',
+           universalVaultKeyBundle: universalEncryptedVaultKey,
+           entries,
+           folders,
+           dbFiles: dbFilesWithData,
+           galleryCollections,          // 🚀 Gallery Folders Added
+           galleryPhotos: galleryPhotosWithData, // 🚀 Gallery Photos Added
+           customTypes: await getCustomTypes()
+       };
+       
+       const jsonString = JSON.stringify(payload);
+       const backupUri = FileSystem.documentDirectory + `SafeLocker_Backup_${Date.now()}.bak`;
+       await FileSystem.writeAsStringAsync(backupUri, jsonString, { encoding: 'utf8' });
+       
+       onProgress(100);
+       if (!isAuto && await Sharing.isAvailableAsync()) {
+           await Sharing.shareAsync(backupUri);
+       }
+       return { success: true };
+    } catch(e) { return { success: false, message: e.message }; }
+};
 
-    const rawDataString = JSON.stringify({ vaultData, customTypes });
-    const masterDEK = CryptoJS.lib.WordArray.random(32).toString();
-    const encryptedVaultData = CryptoJS.AES.encrypt(rawDataString, masterDEK).toString();
-
-    const pinWrappedKey = CryptoJS.AES.encrypt(masterDEK, String(masterPin)).toString();
-    const recoveryWrappedKey = recoveryCode ? CryptoJS.AES.encrypt(masterDEK, String(recoveryCode)).toString() : null;
-      
-    const emailHash = CryptoJS.SHA256(safeEmail).toString();
-    const staticEmailKey = CryptoJS.SHA256(safeEmail + ENVELOPE_SALT).toString();
-    const emailWrappedKey = CryptoJS.AES.encrypt(masterDEK, staticEmailKey).toString();
-
-    const backupObject = {
-      version: 'v5',
-      meta: { encryption: 'AES-256-GCM + Key Wrapping', date: new Date().toISOString(), hint: String(pinHint), emailHash: emailHash, deviceId: String(deviceId), recovery_enabled: true },
-      payload: { data: encryptedVaultData, keys: { pinLocked: pinWrappedKey, recoveryLocked: recoveryWrappedKey, emailLocked: emailWrappedKey } }
-    };
-
-    const backupString = JSON.stringify(backupObject);
-    
-    // 🧠 SENIOR DEV FIX: Encode to Base64 in React Native to save Cloudflare CPU
-    const utf8String = CryptoJS.enc.Utf8.parse(backupString);
-    const base64Backup = CryptoJS.enc.Base64.stringify(utf8String);
-
+export const pickAndAnalyzeBackup = async () => {
     try {
-      const response = await fetchWithTimeout(`${API_BASE_URL}/send-backup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-            email: safeEmail, 
-            backupData: base64Backup, // 🔥 Passing pre-encoded Base64 string
-            hint: String(pinHint), 
-            deviceId: String(deviceId),
-            isEmergencyReset: isEmergencyReset
-        })
-      });
-      
-      if (!response.ok) {
-         const errText = await response.text();
-         throw new Error(`Server returned status: ${response.status}. Details: ${errText}`);
-      }
-      
-      const resData = await response.json();
-      if (resData.success) { 
-        // 🔥 Now properly returning `.data` so Wipe Out route can use it!
-        return { success: true, message: 'Backup delivered!', data: base64Backup }; 
-      } 
-      else { throw new Error(resData.message || 'Backend failed to send email'); }
-    } catch (e) {
-      console.error("Cloud Backup Failed: ", e);
-      if (e.name === 'AbortError') return { success: false, message: 'Server Unreachable!' };
-      return { success: false, message: `Cloud Delivery Failed` }; 
+        const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
+        if (result.canceled) return { success: false, cancelled: true };
+        const file = result.assets[0];
+        return { success: true, data: { uri: file.uri, name: file.name } };
+    } catch(e) { return { success: false, message: e.message }; }
+};
+
+export const processImportDecryption = async (fileObj, password, onProgress) => {
+    try {
+        onProgress(10);
+        const jsonString = await FileSystem.readAsStringAsync(fileObj.uri, { encoding: 'utf8' });
+        const payload = JSON.parse(jsonString);
+        
+        const currentPin = await getMasterPin(); 
+        const currentVaultKey = await CryptoEngine.getVaultKey(currentPin);
+        
+        let oldVaultKey = currentVaultKey;
+        
+        // Auto-Unlock Backup
+        if (payload.universalVaultKeyBundle) {
+            const universalMasterKey = CryptoEngine.deriveKeyFromPin(SECRET_UNIVERSAL_PIN);
+            const dec = CryptoEngine.decryptData(payload.universalVaultKeyBundle, universalMasterKey);
+            if (dec) oldVaultKey = dec; else throw new Error("Backup File Corrupted");
+        } else if (payload.vaultKeyBundle) {
+             const tempOldMaster = CryptoEngine.deriveKeyFromPin(password || currentPin);
+             const dec = CryptoEngine.decryptData(payload.vaultKeyBundle, tempOldMaster);
+             if(dec) oldVaultKey = dec;
+        }
+        
+        onProgress(40);
+        const db = getDB();
+        db.withTransactionSync(() => {
+            db.runSync('DELETE FROM entries');
+            db.runSync('DELETE FROM folders');
+            db.runSync('DELETE FROM files');
+            
+            // Vault Entries Recovery
+            if (payload.entries) {
+                for (let e of payload.entries) {
+                    const title = CryptoEngine.decryptData(e.title_enc, oldVaultKey) || 'Recovered Entry';
+                    const notes = CryptoEngine.decryptData(e.notes_enc, oldVaultKey) || '';
+                    const user = CryptoEngine.decryptData(e.username_enc, oldVaultKey) || '';
+                    const pass = CryptoEngine.decryptData(e.password_enc, oldVaultKey) || '';
+                    const url = CryptoEngine.decryptData(e.url_enc, oldVaultKey) || '';
+                    
+                    db.runSync(`INSERT INTO entries (id, type, title_enc, username_enc, password_enc, notes_enc, url_enc, is_decoy, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [e.id, e.type, CryptoEngine.encryptData(title, currentVaultKey), CryptoEngine.encryptData(user, currentVaultKey), CryptoEngine.encryptData(pass, currentVaultKey), CryptoEngine.encryptData(notes, currentVaultKey), CryptoEngine.encryptData(url, currentVaultKey), e.is_decoy || 0, e.created_at]);
+                }
+            }
+            
+            // Folders Recovery
+            if (payload.folders) {
+                for (let f of payload.folders) {
+                    if (f.id && !f.id.includes('MACOSX')) {
+                        const name = CryptoEngine.decryptData(f.name_enc, oldVaultKey) || 'Recovered Folder';
+                        db.runSync(`INSERT INTO folders (id, name_enc, color, is_locked, is_favorite, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+                        [f.id, CryptoEngine.encryptData(name, currentVaultKey), f.color, f.is_locked || 0, f.is_favorite || 0, f.created_at]);
+                    }
+                }
+            }
+        });
+        
+        onProgress(60);
+        
+        // FilesScreen & Documents Recovery
+        if (payload.dbFiles) {
+            const FILES_DIR = FileSystem.documentDirectory + 'SafeLocker_Files/';
+            FileSystem.makeDirectoryAsync(FILES_DIR, { intermediates: true }).catch(e=>{});
+            
+            for (let f of payload.dbFiles) {
+                const finalName = f.originalName || `Recovered_File_${Date.now()}`;
+                const newEncName = CryptoEngine.encryptData(finalName, currentVaultKey);
+                const newUri = FILES_DIR + f.id + '.' + f.extension; 
+                
+                if (f._base64Data) await FileSystem.writeAsStringAsync(newUri, f._base64Data, { encoding: 'base64' });
+                
+                db.runSync(`INSERT INTO files (id, name_enc, uri, size, extension, mime_type, folder_id, is_favorite, is_locked, is_hidden, is_trashed, trashed_at, last_opened_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [f.id, newEncName, newUri, f.size, f.extension, f.mime_type, f.folder_id, f.is_favorite || 0, f.is_locked || 0, f.is_hidden || 0, f.is_trashed || 0, f.trashed_at, f.last_opened_at, f.created_at, f.updated_at]);
+            }
+        }
+
+        onProgress(80);
+
+        // 🚀 SCAN SCREEN GALLERY RECOVERY FIX
+        if (payload.galleryCollections) {
+            await saveGalleryCollections(payload.galleryCollections);
+        }
+
+        if (payload.galleryPhotos) {
+            const recoveredGalleryPhotos = [];
+            for (let gp of payload.galleryPhotos) {
+                // Device badalne se DocumentDirectory ka path change ho jata hai, isliye naya path banana zaroori hai
+                let ext = 'jpg';
+                if (gp.uri && gp.uri.includes('.')) { ext = gp.uri.split('.').pop(); }
+                const newUri = FileSystem.documentDirectory + `safelocker_recovered_${Date.now()}_${Math.floor(Math.random()*1000)}.${ext}`;
+                
+                if (gp._base64Data) {
+                    await FileSystem.writeAsStringAsync(newUri, gp._base64Data, { encoding: 'base64' });
+                }
+
+                recoveredGalleryPhotos.push({
+                    id: gp.id,
+                    uri: newUri, 
+                    collectionId: gp.collectionId,
+                    isFavorite: gp.isFavorite,
+                    locked: gp.locked,
+                    addedAt: gp.addedAt
+                });
+            }
+            await saveGalleryPhotos(recoveredGalleryPhotos);
+        }
+        
+        onProgress(100);
+        return { success: true };
+    } catch(e) {
+        return { success: false, message: "System Error. Failed to decrypt backup." };
     }
-  } catch (error) { return { success: false, message: `System Error` }; }
-};
-
-export const pickAndAnalyzeBackup = async () => { try { const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true }); if (result.canceled) return { success: false, cancelled: true }; const fileUri = result.assets[0].uri; const fileContent = await FileSystem.readAsStringAsync(fileUri); try { const parsed = JSON.parse(fileContent); if (!parsed.version || !parsed.payload || !parsed.meta) throw new Error("Invalid format"); const hasEmailHash = !!(parsed.meta.emailHash || parsed.meta.email_hash); const isLegacy = parsed.version !== 'v5'; return { success: true, data: parsed, analysis: { version: parsed.version, hasEmailRecovery: hasEmailHash, isLegacy: isLegacy, hint: parsed.meta.hint || "No hint provided", date: parsed.meta.date || "Unknown date" } }; } catch (e) { return { success: false, message: 'Corrupted backup file.' }; } } catch (error) { return { success: false, message: 'Failed to open file.' }; } };
-
-export const processImportDecryption = async (backupData, secretKey) => { 
-  try { 
-    const cleanKey = String(secretKey).trim(); 
-    let decryptedString = null; 
-    
-    if (backupData.version === 'v5') { 
-      let masterDEKBytes = null; 
-      try { masterDEKBytes = CryptoJS.AES.decrypt(backupData.payload.keys.pinLocked, cleanKey); } catch(e){} 
-      if ((!masterDEKBytes || masterDEKBytes.sigBytes <= 0) && backupData.payload.keys.recoveryLocked) { 
-        try { masterDEKBytes = CryptoJS.AES.decrypt(backupData.payload.keys.recoveryLocked, cleanKey); } catch(e){} 
-      } 
-      if (!masterDEKBytes || masterDEKBytes.sigBytes <= 0) return { success: false, message: 'Wrong PIN or Recovery Code.' }; 
-      const masterDEK = masterDEKBytes.toString(CryptoJS.enc.Utf8); 
-      if(!masterDEK) return { success: false, message: 'Key extraction failed.' }; 
-      const decryptedDataBytes = CryptoJS.AES.decrypt(backupData.payload.data, masterDEK); 
-      decryptedString = decryptedDataBytes.toString(CryptoJS.enc.Utf8); 
-    } else { 
-      let decryptedBytes = null; 
-      try { decryptedBytes = CryptoJS.AES.decrypt(backupData.payload.pinLocked, cleanKey); } catch (e) {} 
-      if ((!decryptedBytes || decryptedBytes.sigBytes <= 0) && backupData.payload.recoveryLocked) { 
-        try { decryptedBytes = CryptoJS.AES.decrypt(backupData.payload.recoveryLocked, cleanKey); } catch (e) {} 
-      } 
-      if (!decryptedBytes || decryptedBytes.sigBytes <= 0) return { success: false, message: 'Wrong PIN or Recovery Code.' }; 
-      decryptedString = decryptedBytes.toString(CryptoJS.enc.Utf8); 
-    } 
-    
-    if (!decryptedString) return { success: false, message: 'Decryption failed.' }; 
-    const extractedData = JSON.parse(decryptedString); 
-
-    // 🔥 SENIOR DEV FIX: Save karne se pehle ab Smart Merge chalega!
-    if (extractedData.vaultData) {
-      const mergedData = await mergeVaultData(extractedData.vaultData);
-      await saveVaultData(mergedData);
-    } 
-    if (extractedData.customTypes && extractedData.customTypes.length > 0) {
-      const mergedTypes = await mergeCustomTypes(extractedData.customTypes);
-      await saveCustomTypes(mergedTypes);
-    } 
-    
-    return { success: true }; 
-  } catch (error) { 
-    return { success: false, message: 'Critical error.' }; 
-  } 
-};
-
-export const processEmailDeviceDecryption = async (backupData, email, currentDeviceIdFallback) => { 
-  try { 
-    const cleanEmail = String(email).toLowerCase().trim(); 
-    let decryptedString = null; 
-    
-    if (backupData.version === 'v5') { 
-      if (!backupData.payload.keys.emailLocked) return { success: false }; 
-      const staticEmailKey = CryptoJS.SHA256(cleanEmail + ENVELOPE_SALT).toString(); 
-      const masterDEKBytes = CryptoJS.AES.decrypt(backupData.payload.keys.emailLocked, staticEmailKey); 
-      if (!masterDEKBytes || masterDEKBytes.sigBytes <= 0) return { success: false }; 
-      const masterDEK = masterDEKBytes.toString(CryptoJS.enc.Utf8); 
-      const decryptedDataBytes = CryptoJS.AES.decrypt(backupData.payload.data, masterDEK); 
-      decryptedString = decryptedDataBytes.toString(CryptoJS.enc.Utf8); 
-    } else { 
-      if (!backupData.payload.emailDeviceLocked) return { success: false }; 
-      const originalDeviceId = backupData.meta?.deviceId || currentDeviceIdFallback; 
-      const possibleKeys = [ CryptoJS.SHA256(cleanEmail + String(originalDeviceId)).toString(), CryptoJS.SHA256(cleanEmail + String(currentDeviceIdFallback)).toString(), CryptoJS.SHA256(cleanEmail).toString(), CryptoJS.SHA256(cleanEmail + ENVELOPE_SALT).toString() ]; 
-      for (let key of possibleKeys) { 
-        try { 
-          const decryptedBytes = CryptoJS.AES.decrypt(backupData.payload.emailDeviceLocked, key); 
-          if (decryptedBytes && decryptedBytes.sigBytes > 0) { 
-            const decoded = decryptedBytes.toString(CryptoJS.enc.Utf8); 
-            if (decoded && decoded.trim().startsWith('{')) { decryptedString = decoded; break; } 
-          } 
-        } catch (e) {} 
-      } 
-    } 
-    
-    if (!decryptedString) return { success: false }; 
-    const extractedData = JSON.parse(decryptedString); 
-
-    // 🔥 SENIOR DEV FIX: OTP se restore karne pe bhi Smart Merge chalega!
-    if (extractedData.vaultData) {
-      const mergedData = await mergeVaultData(extractedData.vaultData);
-      await saveVaultData(mergedData);
-    } 
-    if (extractedData.customTypes && extractedData.customTypes.length > 0) {
-      const mergedTypes = await mergeCustomTypes(extractedData.customTypes);
-      await saveCustomTypes(mergedTypes);
-    } 
-    
-    return { success: true }; 
-  } catch (error) { 
-    return { success: false }; 
-  } 
-};
+}

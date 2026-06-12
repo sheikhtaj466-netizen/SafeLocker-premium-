@@ -185,7 +185,7 @@ export default function PremiumPasskeyModal({
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onCancel}>
       <BlurView intensity={isDark ? 40 : 18} tint={isDark ? "dark" : "light"} style={styles.overlay}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{width: '100%', alignItems: 'center'}}>
+<KeyboardAvoidingView behavior="padding" style={{width: '100%', alignItems: 'center'}}>
           <Animated.View style={[
             styles.modalCard, 
             { 

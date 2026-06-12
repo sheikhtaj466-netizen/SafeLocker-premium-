@@ -13,9 +13,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ThemeContext } from '../ThemeContext';
 import { updateSetting, getSettings } from '../utils/storage'; 
 
-// 🚀 SENIOR DEV FIX: Imported Global Passkey Engine
-import PremiumPasskeyModal from '../components/PremiumPasskeyModal';
-
 const API_BASE_URL = 'https://safelockers.sheikhtaj3010.workers.dev';
 
 const BP_COLORS = {
@@ -105,10 +102,6 @@ export default function EmailSetupScreen({ navigation }) {
   
   const [showSecureSessionWarning, setShowSecureSessionWarning] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
-
-  // 🚀 PASSKEY STATES
-  const [showPasskeyAuth, setShowPasskeyAuth] = useState(false);
-  const [passkeyActionType, setPasskeyActionType] = useState('EMAIL_CHANGE');
 
   const [oldOtp, setOldOtp] = useState(''); 
   const [removeOtp, setRemoveOtp] = useState(''); 
@@ -219,31 +212,13 @@ export default function EmailSetupScreen({ navigation }) {
     } catch (error) { setIsLoading(false); setOtp(''); Alert.alert('Network Error', error.message); }
   };
 
-  // 🚀 PASSKEY INTEGRATED PRE-CHECK
   const handleSecurePreCheck = async (actionType) => {
     const s = await getSettings();
     setPendingAction(actionType);
-
-    if (s?.passkeyEnabled) {
-      // 1. Ask Passkey First
-      setPasskeyActionType(actionType === 'CHANGE_EMAIL' ? 'EMAIL_CHANGE' : 'DISABLE_SEC');
-      setShowPasskeyAuth(true);
-    } else if (s?.lockOnExit && !lockWasOnRef.current) {
-      // 2. Ask Lock Warning if passkey disabled
+    if (s?.lockOnExit && !lockWasOnRef.current) {
       setShowSecureSessionWarning(true);
     } else {
-      // 3. Proceed directly
       executePendingAction(actionType);
-    }
-  };
-
-  const handlePasskeySuccess = async () => {
-    setShowPasskeyAuth(false);
-    const s = await getSettings();
-    if (s?.lockOnExit && !lockWasOnRef.current) {
-      setTimeout(() => setShowSecureSessionWarning(true), 400); // Slight delay for modal transition
-    } else {
-      executePendingAction(pendingAction);
     }
   };
 
@@ -414,17 +389,6 @@ export default function EmailSetupScreen({ navigation }) {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
-
-      {/* 🚀 GLOBAL PASSKEY MODAL INTEGRATION */}
-      <PremiumPasskeyModal 
-        visible={showPasskeyAuth}
-        actionType={passkeyActionType}
-        isDark={isDark}
-        themeColors={themeColors}
-        onSuccess={handlePasskeySuccess}
-        onFallback={() => setShowPasskeyAuth(false)} // User cancelled passkey completely
-        onCancel={() => setShowPasskeyAuth(false)}
-      />
 
       <Modal visible={showSecureSessionWarning} animationType="fade" transparent={true}>
         <View style={styles.modalOverlayCenter}>
