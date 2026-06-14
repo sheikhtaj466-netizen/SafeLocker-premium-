@@ -11,10 +11,11 @@ import {
     getGalleryPhotos, 
     getGalleryCollections, 
     saveGalleryPhotos, 
-    saveGalleryCollections 
+    saveGalleryCollections,
+    getRecoveryEmail
 } from './storage';
 
-// 🚀 SECRET UNIVERSAL APP PIN (Koi purana password nahi chahiye)
+// 🚀 SECRET UNIVERSAL APP PIN
 const SECRET_UNIVERSAL_PIN = "SafeLocker_Universal_Bypass_08_System";
 
 export const exportBackup = async (label = "Manual Backup", isAuto = false, onProgress) => {
@@ -25,12 +26,15 @@ export const exportBackup = async (label = "Manual Backup", isAuto = false, onPr
        const currentPin = await getMasterPin();
        const currentVaultKey = await CryptoEngine.getVaultKey(currentPin);
        
+       // Get user's registered email to lock the backup
+       const registeredEmail = await getRecoveryEmail();
+       
        // 1. Get SQLite Data
        const entries = db.getAllSync('SELECT * FROM entries');
        const folders = db.getAllSync('SELECT * FROM folders');
        const files = db.getAllSync('SELECT * FROM files');
        
-       // 2. Get ScanScreen (Gallery) Data 🚀 FIX YAHAN HAI
+       // 2. Get ScanScreen (Gallery) Data
        const galleryPhotos = await getGalleryPhotos();
        const galleryCollections = await getGalleryCollections();
        
@@ -50,7 +54,7 @@ export const exportBackup = async (label = "Manual Backup", isAuto = false, onPr
        
        onProgress(50);
 
-       // 4. Pack ScanScreen Gallery Photos to Base64 🚀 FIX
+       // 4. Pack ScanScreen Gallery Photos to Base64
        const galleryPhotosWithData = [];
        for (let i = 0; i < galleryPhotos.length; i++) {
            const gp = galleryPhotos[i];
@@ -62,18 +66,19 @@ export const exportBackup = async (label = "Manual Backup", isAuto = false, onPr
 
        onProgress(70);
        
-       // Lock with Universal Key
+       // Lock with Universal Key (OTP will act as the gatekeeper in UI)
        const universalMasterKey = CryptoEngine.deriveKeyFromPin(SECRET_UNIVERSAL_PIN);
        const universalEncryptedVaultKey = CryptoEngine.encryptData(currentVaultKey, universalMasterKey);
        
        const payload = {
-           version: 'v12_ultimate_fix',
+           version: 'v13_email_locked_premium',
+           linkedEmail: registeredEmail || null, // 🚀 Saved email securely inside the backup
            universalVaultKeyBundle: universalEncryptedVaultKey,
            entries,
            folders,
            dbFiles: dbFilesWithData,
-           galleryCollections,          // 🚀 Gallery Folders Added
-           galleryPhotos: galleryPhotosWithData, // 🚀 Gallery Photos Added
+           galleryCollections,
+           galleryPhotos: galleryPhotosWithData,
            customTypes: await getCustomTypes()
        };
        
@@ -94,8 +99,23 @@ export const pickAndAnalyzeBackup = async () => {
         const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
         if (result.canceled) return { success: false, cancelled: true };
         const file = result.assets[0];
-        return { success: true, data: { uri: file.uri, name: file.name } };
-    } catch(e) { return { success: false, message: e.message }; }
+
+        // 🚀 SMART PRE-CHECK: Extract linked email immediately
+        const jsonString = await FileSystem.readAsStringAsync(file.uri, { encoding: 'utf8' });
+        const payload = JSON.parse(jsonString);
+
+        return { 
+            success: true, 
+            data: { 
+                uri: file.uri, 
+                name: file.name,
+                linkedEmail: payload.linkedEmail || null,
+                version: payload.version || 'Legacy'
+            } 
+        };
+    } catch(e) { 
+        return { success: false, message: "Invalid or corrupted backup file format." }; 
+    }
 };
 
 export const processImportDecryption = async (fileObj, password, onProgress) => {
@@ -174,7 +194,7 @@ export const processImportDecryption = async (fileObj, password, onProgress) => 
 
         onProgress(80);
 
-        // 🚀 SCAN SCREEN GALLERY RECOVERY FIX
+        // Gallery Recovery
         if (payload.galleryCollections) {
             await saveGalleryCollections(payload.galleryCollections);
         }
@@ -182,7 +202,6 @@ export const processImportDecryption = async (fileObj, password, onProgress) => 
         if (payload.galleryPhotos) {
             const recoveredGalleryPhotos = [];
             for (let gp of payload.galleryPhotos) {
-                // Device badalne se DocumentDirectory ka path change ho jata hai, isliye naya path banana zaroori hai
                 let ext = 'jpg';
                 if (gp.uri && gp.uri.includes('.')) { ext = gp.uri.split('.').pop(); }
                 const newUri = FileSystem.documentDirectory + `safelocker_recovered_${Date.now()}_${Math.floor(Math.random()*1000)}.${ext}`;

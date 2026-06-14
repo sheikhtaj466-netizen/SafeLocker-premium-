@@ -3,7 +3,8 @@ module.exports = function(api) {
   return {
     presets: ['babel-preset-expo'],
     plugins: [
-      'react-native-reanimated/plugin', // 🔥 YEH LINE HONA 100% ZAROORI HAI
+      'react-native-worklets-core/plugin', 
+      'react-native-reanimated/plugin' // WARNING: Reanimated plugin hamesha LAST line me hona chahiye
     ],
   };
 };

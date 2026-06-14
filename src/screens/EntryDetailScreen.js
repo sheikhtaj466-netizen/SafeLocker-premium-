@@ -21,7 +21,7 @@ const TYPE_SCHEMAS = {
   'Mail': { email: { label: 'Email Address' }, password: { label: 'Password', isSecure: true }, twoFactor: { label: '2FA Secret' }, recoveryEmail: { label: 'Recovery Email' }, backupCodes: { label: 'Backup Codes' }, notes: { label: 'Notes' } }
 };
 
-// 🧩 DYNAMIC FIELD COMPONENT (Tere screenshot jaisa premium UI)
+// 🧩 DYNAMIC FIELD COMPONENT
 const DetailField = ({ label, value, isSecure, isDark, themeColors }) => {
   const [revealed, setRevealed] = useState(!isSecure);
 
@@ -63,7 +63,6 @@ export default function EntryDetailScreen({ route, navigation }) {
   const { themeColors, isDark } = useContext(ThemeContext);
   const { entry } = route.params;
 
-  // Agar entry nahi hai toh wapas bhej do
   if (!entry) {
     navigation.goBack();
     return null;
@@ -96,11 +95,9 @@ export default function EntryDetailScreen({ route, navigation }) {
     );
   };
 
-  // 🚀 SENIOR DEV MAGIC: Extracting only the relevant fields dynamically
-  const ignoredKeys = ['id', 'type', 'title', 'date', 'createdAt', 'updatedAt'];
+  const ignoredKeys = ['id', 'type', 'title', 'date', 'createdAt', 'updatedAt', 'customFields'];
   const schema = TYPE_SCHEMAS[entry.type] || {};
   
-  // Get all keys present in the entry that are not ignored
   const renderKeys = Object.keys(entry).filter(key => !ignoredKeys.includes(key) && entry[key] !== '');
 
   return (
@@ -131,13 +128,12 @@ export default function EntryDetailScreen({ route, navigation }) {
           <Text style={styles.typeBadge}>{entry.type.toUpperCase()} ACCOUNT</Text>
         </View>
 
-        {/* 📦 THE SMART CARD (Dynamically renders all fields) */}
+        {/* 📦 THE SMART CARD */}
         <View style={[styles.card, { backgroundColor: isDark ? themeColors.card : '#FFFFFF', borderColor: isDark ? themeColors.separator : '#F3F4F6' }]}>
           
           {renderKeys.map(key => {
-            // Check if we have a schema definition for this key, otherwise generate a nice label
             const fieldDef = schema[key] || { 
-              label: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()), // Auto-format camelCase to Normal Words
+              label: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()), 
               isSecure: false 
             };
 
@@ -152,6 +148,18 @@ export default function EntryDetailScreen({ route, navigation }) {
               />
             );
           })}
+
+          {/* 🔥 RENDER CUSTOM FIELDS */}
+          {entry.customFields && entry.customFields.map((cf, index) => (
+            <DetailField 
+              key={cf.id || `custom_${index}`} 
+              label={cf.label || `Custom Field ${index + 1}`} 
+              value={cf.value} 
+              isSecure={false} 
+              isDark={isDark} 
+              themeColors={themeColors} 
+            />
+          ))}
 
           {/* DATE CREATED */}
           {entry.date && (

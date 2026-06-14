@@ -148,19 +148,38 @@ const SmartInput = ({ field, value, onChangeText, focusedField, setFocusedField,
 
 export default function FormScreen({ route, navigation }) {
   const { themeColors, isDark } = useContext(ThemeContext);
-  const { type = 'Login', editEntry = null, customFields = null } = route.params || {};
+  const { type = 'Login', editEntry = null, customFields: routeCustomFields = null } = route.params || {};
 
   let schema = TYPE_SCHEMAS[type];
   if (!schema) {
     schema = [
       { key: 'title', label: 'Title *', placeholder: `e.g. ${type} Account`, autoCapitalize: 'words' },
-      ...(customFields || []).map(cf => ({ key: cf.id, label: cf.label, placeholder: cf.placeholder }))
+      ...(routeCustomFields || []).map(cf => ({ key: cf.id, label: cf.label, placeholder: cf.placeholder }))
     ];
   }
 
   const [formData, setFormData] = useState({});
   const [focusedField, setFocusedField] = useState(null);
   const [saveState, setSaveState] = useState('idle'); 
+
+  // 🔥 CUSTOM FIELDS STATE & LOGIC
+  const [customFields, setCustomFields] = useState(editEntry?.customFields || []);
+
+  const addCustomField = () => {
+    if (customFields.length < 3) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setCustomFields([...customFields, { id: Date.now().toString(), label: '', value: '' }]);
+    }
+  };
+
+  const removeCustomField = (id) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setCustomFields(customFields.filter(cf => cf.id !== id));
+  };
+
+  const updateCustomField = (id, key, text) => {
+    setCustomFields(customFields.map(cf => cf.id === id ? { ...cf, [key]: text } : cf));
+  };
 
   // 🚀 Premium Success Animation References
   const successScale = useRef(new Animated.Value(0.5)).current;
@@ -189,7 +208,7 @@ export default function FormScreen({ route, navigation }) {
       Animated.timing(successOpacity, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
          navigation.reset({ index: 0, routes: [{ name: 'MainDashboard' }] });
       });
-    }, 1800);
+    }, 700);
   };
 
   const handleSave = async () => {
@@ -236,10 +255,14 @@ export default function FormScreen({ route, navigation }) {
 
       const entryId = editEntry ? String(editEntry.id) : (Date.now().toString() + Math.random().toString(36).substring(2, 7));
       
+      const validCustomFields = customFields.filter(cf => cf.label.trim() !== '' || cf.value.trim() !== '');
+
       // 🚀 VERY IMPORTANT: Maintain old data when editing
       const newEntryData = {
-        ...(editEntry || {}), // Keep favorite status etc
-        id: entryId, type: String(type), title, username, password, url, notes: finalNotes, date: new Date().toISOString(), ...safeFormData 
+        ...(editEntry || {}), 
+        id: entryId, type: String(type), title, username, password, url, notes: finalNotes, date: new Date().toISOString(), 
+        customFields: validCustomFields, // 🔥 SAVE CUSTOM FIELDS HERE
+        ...safeFormData 
       };
 
       let updatedData = [];
@@ -299,6 +322,40 @@ export default function FormScreen({ route, navigation }) {
             ))}
           </View>
 
+          {/* 🔥 CUSTOM FIELDS UI */}
+          {customFields.map((cf, index) => (
+            <View key={cf.id} style={{ marginBottom: 16, backgroundColor: isDark ? themeColors.inputBg : '#F9FAFB', padding: 16, borderRadius: 16, borderWidth: 1, borderColor: isDark ? themeColors.separator : '#E5E7EB' }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+                <Text style={{ fontSize: 12, fontWeight: '800', color: themeColors.primary, letterSpacing: 1 }}>CUSTOM FIELD {index + 1}</Text>
+                <TouchableOpacity onPress={() => removeCustomField(cf.id)} style={{ padding: 4, marginRight: -4, marginTop: -4 }}>
+                  <Feather name="minus-circle" size={20} color="#EF4444" />
+                </TouchableOpacity>
+              </View>
+              <TextInput
+                style={[styles.inputWrapper, styles.input, { backgroundColor: isDark ? themeColors.card : '#FFFFFF', marginBottom: 10, height: 48, borderColor: isDark ? themeColors.inputBorder : '#E5E7EB', color: isDark ? themeColors.textDark : '#111827' }]}
+                placeholder="Field Name (e.g. Security Question)"
+                placeholderTextColor="#9CA3AF"
+                value={cf.label}
+                onChangeText={(text) => updateCustomField(cf.id, 'label', text)}
+              />
+              <TextInput
+                style={[styles.inputWrapper, styles.input, { backgroundColor: isDark ? themeColors.card : '#FFFFFF', height: 48, borderColor: isDark ? themeColors.inputBorder : '#E5E7EB', color: isDark ? themeColors.textDark : '#111827' }]}
+                placeholder="Field Value"
+                placeholderTextColor="#9CA3AF"
+                value={cf.value}
+                onChangeText={(text) => updateCustomField(cf.id, 'value', text)}
+              />
+            </View>
+          ))}
+
+          {/* ADD CUSTOM FIELD BUTTON (Hides after 3) */}
+          {customFields.length < 3 && (
+            <TouchableOpacity onPress={addCustomField} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24, paddingVertical: 8 }}>
+              <Feather name="plus-circle" size={18} color={themeColors.primary} style={{ marginRight: 8 }} />
+              <Text style={{ color: themeColors.primary, fontWeight: '700', fontSize: 15 }}>Add Custom Field</Text>
+            </TouchableOpacity>
+          )}
+
           <Pressable 
             disabled={!isFormValid || saveState !== 'idle'} activeOpacity={0.8} onPress={handleSave} 
             style={({ pressed }) => [styles.btnWrapper, pressed && { transform: [{ scale: 0.96 }] }]}
@@ -334,10 +391,10 @@ const styles = StyleSheet.create({
   primaryBtn: { height: 52, borderRadius: 14, justifyContent: 'center', alignItems: 'center', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
   primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
 
-  // 🚀 Premium Success Overlay Styles
-  premiumSuccessOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  successCard: { width: '100%', padding: 32, borderRadius: 36, alignItems: 'center', shadowColor: '#000', shadowOffset: {width: 0, height: 12}, shadowOpacity: 0.2, shadowRadius: 24, elevation: 15 },
-  successIconBox: { width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(16, 185, 129, 0.1)', justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
-  successTitle: { fontSize: 24, fontWeight: '900', marginBottom: 8 },
-  successSub: { fontSize: 15, textAlign: 'center', lineHeight: 22, fontWeight: '500' }
+  // 🚀 Premium Success Overlay Styles (Minimalist)
+  premiumSuccessOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: 'rgba(0,0,0,0.6)' },
+  successCard: { width: 200, padding: 24, borderRadius: 28, alignItems: 'center', shadowColor: '#000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.15, shadowRadius: 20, elevation: 10 },
+  successIconBox: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(16, 185, 129, 0.1)', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
+  successTitle: { fontSize: 18, fontWeight: '800', marginBottom: 4 },
+  successSub: { fontSize: 13, textAlign: 'center', fontWeight: '500' }
 });

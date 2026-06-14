@@ -4,11 +4,11 @@
     "slug": "safelocker",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/safelockers.png",
-    "userInterfaceStyle": "light",
+    "icon": "./assets/Safelocker2.png",
+    "userInterfaceStyle": "automatic",
     "scheme": "safelocker",
     "splash": {
-      "image": "./assets/safelockers.png",
+      "image": "./assets/Safelocker2.png",
       "resizeMode": "contain",
       "backgroundColor": "#121212"
     },
@@ -21,15 +21,24 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/safelockers.png",
+        "foregroundImage": "./assets/Safelocker2.png",
         "backgroundColor": "#121212"
       },
-      "package": "com.sheikhtaj.safelocker"
-    },
-    "extra": {
-      "eas": {
-        "projectId": "4f4f6b00-5e25-46eb-9397-c36bee889a1c"
-      }
+      "package": "com.sheikhtaj.safelocker",
+      "softwareKeyboardLayoutMode": "pan",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.VIBRATE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_AUDIO"
+      ]
     },
     "plugins": [
       "expo-font",
@@ -38,7 +47,7 @@
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Allow SafeLocker to use Face ID / Biometrics for unlocking."
+          "faceIDPermission": "Allow SafeLocker to use Biometrics for secure unlocking."
         }
       ],
       [
@@ -52,10 +61,15 @@
       [
         "expo-media-library",
         {
-          "photosPermission": "Allow SafeLocker to save photos to your device gallery.",
-          "savePhotosPermission": "Allow SafeLocker to save exported photos to your device gallery."
+          "photosPermission": "Allow SafeLocker to access photos for secure vault storage.",
+          "savePhotosPermission": "Allow SafeLocker to save exported photos back to gallery."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "4f4f6b00-5e25-46eb-9397-c36bee889a1c"
+      }
+    }
   }
 }

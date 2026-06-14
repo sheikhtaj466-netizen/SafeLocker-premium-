@@ -125,7 +125,7 @@ export default function VaultScreen({ navigation }) {
   const [selectedIds, setSelectedIds] = useState([]);
   const [sortType, setSortType] = useState('recent'); 
   
-  const [isDecoyMode, setIsDecoyMode] = useState(false); // 🚀 DECOY STATE ADDED
+  const [isDecoyMode, setIsDecoyMode] = useState(false); 
 
   const [showSortSheet, setShowSortSheet] = useState(false);
   const [copySheetEntry, setCopySheetEntry] = useState(null); 
@@ -175,6 +175,14 @@ export default function VaultScreen({ navigation }) {
     return ["All", ...Array.from(new Set(types))];
   }, [entries]);
 
+  // 🚀 ULTRA SMART TIME EXTRACTOR
+  const getSmartTime = (obj) => {
+    const t = obj.updatedAt || obj.createdAt || obj.date || obj.timestamp;
+    if (!t) return 0;
+    const time = new Date(t).getTime();
+    return isNaN(time) ? 0 : time;
+  };
+
   const filteredSections = useMemo(() => {
     let result = [...entries];
     if (activeCategory !== 'All') result = result.filter(item => item.type === activeCategory);
@@ -188,16 +196,28 @@ export default function VaultScreen({ navigation }) {
       if (!grouped[sectionName]) grouped[sectionName] = [];
       grouped[sectionName].push(entry);
     });
+    
     const sectionArray = Object.keys(grouped).map(key => {
       let sectionData = grouped[key];
       sectionData.sort((a, b) => {
-        const titleA = a.title ? a.title.toLowerCase() : '';
-        const titleB = b.title ? b.title.toLowerCase() : '';
-        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        const titleA = (a.title || 'Untitled').trim().toLowerCase();
+        const titleB = (b.title || 'Untitled').trim().toLowerCase();
+        
+        const timeA = getSmartTime(a);
+        const timeB = getSmartTime(b);
+        
         if (sortType === 'az') return titleA.localeCompare(titleB);
         if (sortType === 'za') return titleB.localeCompare(titleA);
-        return timeB - timeA;
+        
+        if (sortType === 'oldest') {
+          // Time same ho toh alphabetically sort kardo
+          if (timeA === timeB) return titleA.localeCompare(titleB);
+          return timeA - timeB; 
+        }
+        
+        // Default: Recent (Newest first)
+        if (timeA === timeB) return titleA.localeCompare(titleB);
+        return timeB - timeA; 
       });
       return { title: key, data: sectionData };
     });
@@ -227,7 +247,6 @@ export default function VaultScreen({ navigation }) {
   }, [selectedIds.length]);
 
   const loadData = async () => { 
-     // 🚀 STRICT DECOY MODE LOGIC
      const mode = await getSessionMode();
      const decoyStatus = mode === 'LIMITED' || global.isDecoyMode;
      setIsDecoyMode(decoyStatus);
@@ -242,7 +261,6 @@ export default function VaultScreen({ navigation }) {
      }
 
      const data = await getVaultData() || []; 
-     // 🚀 DATA PROTECTOR: Agar koi file corrupt hui, toh app crash nahi hoga
      const validData = data.filter(e => e && e.id);
      setEntries(validData); 
   };
@@ -270,7 +288,7 @@ export default function VaultScreen({ navigation }) {
   };
 
   const handleBulkClone = async () => {
-    if (isDecoyMode) return showToast("Disabled in Decoy Mode", "shield-off", '#EF4444'); // 🚀 BLOCKED
+    if (isDecoyMode) return showToast("Disabled in Decoy Mode", "shield-off", '#EF4444');
     
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     const itemsToClone = entries.filter(e => selectedIds.includes(e.id));
@@ -287,7 +305,7 @@ export default function VaultScreen({ navigation }) {
   };
 
   const promptShare = (idsToShare) => {
-    if (isDecoyMode) return showToast("Disabled in Decoy Mode", "shield-off", '#EF4444'); // 🚀 BLOCKED
+    if (isDecoyMode) return showToast("Disabled in Decoy Mode", "shield-off", '#EF4444');
     
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     showCustomAlert(
@@ -329,7 +347,7 @@ export default function VaultScreen({ navigation }) {
   };
 
   const promptDelete = (idsToDelete) => {
-    if (isDecoyMode) return showToast("Disabled in Decoy Mode", "shield-off", '#EF4444'); // 🚀 BLOCKED
+    if (isDecoyMode) return showToast("Disabled in Decoy Mode", "shield-off", '#EF4444');
     
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     showCustomAlert(
@@ -372,7 +390,7 @@ export default function VaultScreen({ navigation }) {
   }, []);
 
   const executeSecureCopy = async (text, isSensitive, label) => {
-    if (isDecoyMode) return showToast("Disabled in Decoy Mode", "shield-off", '#EF4444'); // 🚀 BLOCKED
+    if (isDecoyMode) return showToast("Disabled in Decoy Mode", "shield-off", '#EF4444');
     
     if (!text) return;
     if (isSensitive) {
@@ -590,20 +608,37 @@ export default function VaultScreen({ navigation }) {
         </View>
       </Modal>
 
-      {/* SORT OPTIONS MODAL */}
+      {/* 🚀 PREMIUM SORT OPTIONS MODAL */}
       <Modal visible={showSortSheet} transparent animationType="fade" onRequestClose={() => setShowSortSheet(false)}>
         <View style={StyleSheet.absoluteFill}>
           <BlurView intensity={20} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
           <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowSortSheet(false)}>
             <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 20, backgroundColor: isDark ? '#1E293B' : '#FFFFFF', borderColor: isDark ? '#334155' : '#E2E8F0', borderWidth: 1 }]}>
               <View style={[styles.sheetHandle, { backgroundColor: isDark ? '#334155' : '#E2E8F0' }]} />
-              <Text style={[styles.sheetTitle, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>Sort Entries By</Text>
-              {[{id: 'recent', label: 'Recently Added'}, {id: 'az', label: 'Name (A → Z)'}, {id: 'za', label: 'Name (Z → A)'}].map(option => (
-                <TouchableOpacity key={option.id} style={[styles.sortOptionRow, { borderBottomColor: isDark ? '#334155' : '#EEF1F5' }]} onPress={() => handleSortChange(option.id)}>
-                  <Text style={[styles.sortOptionText, { color: isDark ? '#E2E8F0' : '#475569' }, sortType === option.id && { color: primaryColor, fontWeight: '800' }]}>{option.label}</Text>
-                  {sortType === option.id && <Feather name="check" size={20} color={primaryColor} />}
-                </TouchableOpacity>
-              ))}
+              <Text style={[styles.sheetTitle, { color: isDark ? '#F8FAFC' : '#0F172A', marginBottom: 20 }]}>Sort Vault Entries</Text>
+              
+              {[
+                { id: 'recent', label: 'Recently Added', icon: 'clock', sub: 'Newest entries first' }, 
+                { id: 'oldest', label: 'Oldest First', icon: 'calendar', sub: 'Earliest entries first' },
+                { id: 'az', label: 'Name (A → Z)', icon: 'arrow-down', sub: 'Alphabetical order' }, 
+                { id: 'za', label: 'Name (Z → A)', icon: 'arrow-up', sub: 'Reverse alphabetical' }
+              ].map(option => {
+                const isActive = sortType === option.id;
+                return (
+                  <TouchableOpacity key={option.id} style={[styles.sortOptionRow, { borderBottomColor: isDark ? '#334155' : '#EEF1F5', paddingVertical: 14 }]} onPress={() => handleSortChange(option.id)}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                       <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: isActive ? primaryColor + '20' : (isDark ? '#0F172A' : '#F1F5F9'), justifyContent: 'center', alignItems: 'center', marginRight: 14 }}>
+                         <Feather name={option.icon} size={18} color={isActive ? primaryColor : (isDark ? '#94A3B8' : '#64748B')} />
+                       </View>
+                       <View>
+                         <Text style={[styles.sortOptionText, { color: isDark ? '#F8FAFC' : '#1E293B', fontSize: 16 }, isActive && { color: primaryColor, fontWeight: '800' }]}>{option.label}</Text>
+                         <Text style={{ fontSize: 12, color: '#94A3B8', marginTop: 4, fontWeight: '500' }}>{option.sub}</Text>
+                       </View>
+                    </View>
+                    {isActive && <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: primaryColor, justifyContent: 'center', alignItems: 'center' }}><Feather name="check" size={14} color="#FFF" /></View>}
+                  </TouchableOpacity>
+                );
+              })}
             </TouchableOpacity>
           </TouchableOpacity>
         </View>

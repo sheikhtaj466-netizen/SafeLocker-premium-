@@ -2,7 +2,9 @@
 import React, { useState, useEffect, useRef, useContext } from 'react';
 import { 
   View, Text, StyleSheet, SafeAreaView, 
-  Modal, Animated, ActivityIndicator, Alert, AppState, TextInput, Pressable, TouchableOpacity, Platform, KeyboardAvoidingView, Keyboard, TouchableWithoutFeedback
+  Modal, Animated, ActivityIndicator, Alert, AppState, TextInput, 
+  Pressable, TouchableOpacity, Platform, KeyboardAvoidingView, Keyboard, 
+  TouchableWithoutFeedback, InteractionManager
 } from 'react-native';
 import { Feather, MaterialIcons } from '@expo/vector-icons'; 
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -19,17 +21,6 @@ import {
 import { ThemeContext } from '../ThemeContext';
 import { CryptoEngine } from '../utils/cryptoEngine'; 
 import { getDB } from '../utils/database';
-
-// 🚀 CRITICAL FIX: React Native Crypto Crash Fix
-import CryptoJS from 'crypto-js';
-if (!CryptoJS.lib.WordArray.random_polyfilled) {
-  CryptoJS.lib.WordArray.random = function (nBytes) {
-    const words = [];
-    for (let i = 0; i < nBytes; i += 4) { words.push((Math.random() * 0x100000000) | 0); }
-    return CryptoJS.lib.WordArray.create(words, nBytes);
-  };
-  CryptoJS.lib.WordArray.random_polyfilled = true;
-}
 
 const API_BASE_URL = 'https://safelockers.sheikhtaj3010.workers.dev'; 
 
@@ -52,7 +43,7 @@ const fetchWithRetry = async (url, options = {}, retries = 3) => {
 export default function LockScreen({ navigation }) {
   const { isDark, themeColors } = useContext(ThemeContext);
   const insets = useSafeAreaInsets(); 
-  const primaryColor = themeColors?.primary || '#6C5CE7';
+  const primaryColor = themeColors?.primary || '#8B5CF6';
 
   const [pin, setPin] = useState('');
   const [savedPin, setSavedPin] = useState(null); 
@@ -72,7 +63,6 @@ export default function LockScreen({ navigation }) {
   const [recoveryModalVisible, setRecoveryModalVisible] = useState(false);
   const [recoveryStep, setRecoveryStep] = useState('OPTIONS'); 
   const [isRecoveryLoading, setIsRecoveryLoading] = useState(false);
-  const [isRecoveryError, setIsRecoveryError] = useState(false);
 
   const [savedEmail, setSavedEmail] = useState('');
   const [maskedEmail, setMaskedEmail] = useState('');
@@ -92,9 +82,7 @@ export default function LockScreen({ navigation }) {
 
   const entranceAnim = useRef(new Animated.Value(0)).current;
   const shakeAnim = useRef(new Animated.Value(0)).current;
-  const recoveryShakeAnim = useRef(new Animated.Value(0)).current;
-  const recoveryScaleAnim = useRef(new Animated.Value(0.8)).current; 
-  const dotScales = useRef([new Animated.Value(0.5), new Animated.Value(0.5), new Animated.Value(0.5), new Animated.Value(0.5)]).current;
+  const dotScales = useRef([new Animated.Value(0.6), new Animated.Value(0.6), new Animated.Value(0.6), new Animated.Value(0.6)]).current;
   const idleTimer = useRef(null);
 
   useEffect(() => {
@@ -126,7 +114,7 @@ export default function LockScreen({ navigation }) {
       const isFilled = index < pin.length;
       Animated.spring(anim, { 
         toValue: isFilled ? 1.2 : 0.6, 
-        speed: 24, bounciness: 10, useNativeDriver: true 
+        speed: 28, bounciness: 12, useNativeDriver: true 
       }).start();
     });
   }, [pin]);
@@ -137,20 +125,8 @@ export default function LockScreen({ navigation }) {
     return () => clearInterval(interval);
   }, [lockoutTimer]);
 
-  useEffect(() => {
-    if (recoveryStep === 'EMAIL_OTP' && otpInput.length === 6 && !isRecoveryLoading) handleVerifyOtp();
-  }, [otpInput]);
-
-  useEffect(() => {
-    if (recoveryStep === 'CODE_ENTRY' && savedCode && codeInput.length > 5 && !isRecoveryLoading) {
-      const cleanInput = codeInput.replace(/[^0-9]/ig, '');
-      const cleanSaved = savedCode.replace(/[^0-9]/ig, '');
-      if (cleanInput === cleanSaved && cleanInput.length === cleanSaved.length) handleRecoveryCodeSubmit();
-    }
-  }, [codeInput]);
-
   const loadInitialSetup = async () => {
-    global.isDecoyMode = false; // 🚀 Reset Decoy Mode when locked
+    global.isDecoyMode = false; 
     const fPin = await getFakePin(); setFakePinState(fPin);
     const profile = await getLockProfile(); setLockProfile(profile);
     const code = await getRecoveryCode(); setSavedCode(code);
@@ -164,7 +140,7 @@ export default function LockScreen({ navigation }) {
     const p = await getMasterPin();
     if (p) {
       setSavedPin(p); setIsFirstTime(false); setDynamicSubtitle("Enter PIN to unlock");
-      if (profile === 'BIO_OR_PIN' && !mandatoryEmailModal) setTimeout(() => triggerBiometric(true), 800);
+      if (profile === 'BIO_OR_PIN' && !mandatoryEmailModal) setTimeout(() => triggerBiometric(true), 600);
     } else {
       setSavedPin(null); setIsFirstTime(true); setSetupStep(1); setTempSetupPin(''); setPin('');
     }
@@ -183,10 +159,10 @@ export default function LockScreen({ navigation }) {
     clearTimeout(idleTimer.current);
     await updateSetting('lastUnlocked', `Today • ${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`);
     await setSessionMode(mode); 
-    global.isDecoyMode = (mode === 'LIMITED'); // 🚀 ENABLE STRICT DECOY FLAG GLOBALLY
+    global.isDecoyMode = (mode === 'LIMITED'); 
     await logActivity('Auth', 'VAULT_UNLOCKED', `Vault accessed in ${mode === 'LIMITED' ? 'Decoy' : 'Full'} Mode.`, 'WORKFLOW');
     
-    Animated.timing(entranceAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+    Animated.timing(entranceAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start(() => {
        navigation.replace('MainDashboard'); 
     });
   };
@@ -194,18 +170,12 @@ export default function LockScreen({ navigation }) {
   const triggerMainShake = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     Animated.sequence([
-      Animated.timing(shakeAnim, { toValue: -8, duration: 50, useNativeDriver: true }), Animated.timing(shakeAnim, { toValue: 8, duration: 50, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: -6, duration: 50, useNativeDriver: true }), Animated.timing(shakeAnim, { toValue: 6, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -12, duration: 50, useNativeDriver: true }), 
+      Animated.timing(shakeAnim, { toValue: 12, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -8, duration: 50, useNativeDriver: true }), 
+      Animated.timing(shakeAnim, { toValue: 8, duration: 50, useNativeDriver: true }),
       Animated.timing(shakeAnim, { toValue: 0, duration: 50, useNativeDriver: true })
     ]).start();
-  };
-
-  const triggerRecoveryShake = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); setIsRecoveryError(true);
-    Animated.sequence([
-      Animated.timing(recoveryShakeAnim, { toValue: 10, duration: 50, useNativeDriver: true }), Animated.timing(recoveryShakeAnim, { toValue: -10, duration: 50, useNativeDriver: true }),
-      Animated.timing(recoveryShakeAnim, { toValue: 10, duration: 50, useNativeDriver: true }), Animated.timing(recoveryShakeAnim, { toValue: 0, duration: 50, useNativeDriver: true })
-    ]).start(() => setIsRecoveryError(false));
   };
 
   const resetIdleTimer = () => {
@@ -213,17 +183,24 @@ export default function LockScreen({ navigation }) {
     idleTimer.current = setTimeout(() => { if (pin.length > 0) setPin(''); }, 6000);
   };
 
-  const handleKeyPress = async (num) => {
+  const handleKeyPress = (num) => {
     if (lockoutTimer > 0 || isDecrypting) { if(!isDecrypting) triggerMainShake(); return; }
     if (pin.length === 0 && !isError && attempts < 3) setDynamicSubtitle("Enter PIN to unlock"); 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     resetIdleTimer();
     
     if (pin.length < 4) {
-      const newPinValue = pin + num; setPin(newPinValue); setIsError(false); 
+      const newPinValue = pin + num; 
+      setPin(newPinValue); 
+      setIsError(false); 
+      
       if (newPinValue.length === 4) {
         setIsDecrypting(true); 
-        setTimeout(() => { if (isFirstTime) handleSetupFlow(newPinValue); else verifyPin(newPinValue); }, 150);
+        InteractionManager.runAfterInteractions(() => {
+          setTimeout(() => { 
+            if (isFirstTime) handleSetupFlow(newPinValue); else verifyPin(newPinValue); 
+          }, 50);
+        });
       }
     }
   };
@@ -231,7 +208,7 @@ export default function LockScreen({ navigation }) {
   const handleSetupFlow = async (enteredPin) => {
     if (setupStep === 1) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setTempSetupPin(enteredPin);
-      setTimeout(() => { setPin(''); setSetupStep(2); setIsDecrypting(false); }, 300);
+      setPin(''); setSetupStep(2); setIsDecrypting(false);
     } else if (setupStep === 2) {
       if (enteredPin === tempSetupPin) {
         try {
@@ -242,7 +219,10 @@ export default function LockScreen({ navigation }) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           await logActivity('Auth', 'MASTER_PIN_CREATED', 'Initial Master PIN created.', 'IMPORTANT');
           setIsDecrypting(false); checkAndProceed('FULL');
-        } catch(e) { setIsDecrypting(false); Alert.alert("Encryption Error", "Failed to generate security keys."); }
+        } catch(e) { 
+          setIsDecrypting(false); 
+          Alert.alert("Encryption Error", "Failed to generate security keys. Please restart the app."); 
+        }
       } else {
         setIsDecrypting(false); setIsError(true); triggerMainShake(); setDynamicSubtitle('PINs do not match');
         setTimeout(() => { setPin(''); setTempSetupPin(''); setSetupStep(1); setIsError(false); setDynamicSubtitle("Create 4-digit Master PIN"); }, 1000);
@@ -262,13 +242,7 @@ export default function LockScreen({ navigation }) {
     if (enteredPin === savedPin) {
       let vaultKey;
       try { vaultKey = await CryptoEngine.getVaultKey(enteredPin); } catch(e) {}
-      
-      if (!vaultKey) {
-          console.log("Auto-Repairing Vault Key...");
-          await CryptoEngine.setupVaultKey(enteredPin);
-          vaultKey = await CryptoEngine.getVaultKey(enteredPin);
-      }
-
+      if (!vaultKey) { await CryptoEngine.setupVaultKey(enteredPin); vaultKey = await CryptoEngine.getVaultKey(enteredPin); }
       setIsDecrypting(false);
 
       if (vaultKey) {
@@ -321,20 +295,18 @@ export default function LockScreen({ navigation }) {
         if (auth.success) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           setIsDecrypting(true);
-          setTimeout(async () => {
-            const p = await getMasterPin();
-            let vaultKey;
-            try { vaultKey = await CryptoEngine.getVaultKey(p); } catch(e) {}
-            
-            if (!vaultKey) {
-                await CryptoEngine.setupVaultKey(p);
-                vaultKey = await CryptoEngine.getVaultKey(p);
-            }
-
-            setActiveVaultKey(vaultKey);
-            setIsDecrypting(false);
-            checkAndProceed('FULL'); 
-          }, 50);
+          
+          InteractionManager.runAfterInteractions(() => {
+            setTimeout(async () => {
+              const p = await getMasterPin();
+              let vaultKey;
+              try { vaultKey = await CryptoEngine.getVaultKey(p); } catch(e) {}
+              if (!vaultKey) { await CryptoEngine.setupVaultKey(p); vaultKey = await CryptoEngine.getVaultKey(p); }
+              setActiveVaultKey(vaultKey);
+              setIsDecrypting(false);
+              checkAndProceed('FULL'); 
+            }, 50);
+          });
         } else if (!isAutoTrigger) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
           await logActivity('Auth', 'BIOMETRIC_FAILED', 'Primary biometric unlock failed.', 'CRITICAL');
@@ -343,120 +315,85 @@ export default function LockScreen({ navigation }) {
     } catch (e) { setIsDecrypting(false); }
   };
 
-  const openRecoveryModal = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setRecoveryStep('OPTIONS'); setRecoveryModalVisible(true);
-    Animated.spring(recoveryScaleAnim, { toValue: 1, tension: 60, friction: 8, useNativeDriver: true }).start();
-  };
+  const openRecoveryModal = () => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); navigation.navigate('Recovery'); };
 
-  const closeRecoveryModal = () => { Keyboard.dismiss(); Animated.timing(recoveryScaleAnim, { toValue: 0.8, duration: 150, useNativeDriver: true }).start(() => { setRecoveryModalVisible(false); setRecoveryStep('OPTIONS'); setOtpInput(''); setCodeInput(''); setNewPin(''); setConfirmNewPin(''); setResetStep(1); setIsRecoveryLoading(false); }); };
-
-  const triggerEmailRecoveryFlow = async () => {
-    if (!savedEmail || savedEmail === '') { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); Alert.alert("No Email Linked", "You haven't set up a recovery email. Please use a Recovery Code."); return; }
-    setIsRecoveryLoading(true);
-    try {
-      const payload = { email: savedEmail.toLowerCase().trim(), otpType: 'RECOVER_PIN' };
-      const res = await fetchWithRetry(`${API_BASE_URL}/send-otp`, { method: 'POST', body: JSON.stringify(payload) });
-      
-      const responseText = await res.text();
-      let data;
-      try { data = JSON.parse(responseText); } catch (parseError) { throw new Error(responseText.includes('1016') ? "Cloudflare Backend Offline (Error 1016). Please check your Worker deployment." : "Server error. Invalid response."); }
-
-      setIsRecoveryLoading(false);
-      if (data.success) { setOtpCooldown(60); setRecoveryStep('EMAIL_OTP'); } else { Alert.alert("Failed", data.message || "Could not send OTP."); }
-    } catch (error) { setIsRecoveryLoading(false); Alert.alert("Network Error", error.message); }
-  };
-
-  const handleVerifyOtp = async () => {
-    Keyboard.dismiss(); setIsRecoveryLoading(true);
-    try {
-      const payload = { email: savedEmail.toLowerCase().trim(), otp: otpInput };
-      const res = await fetchWithRetry(`${API_BASE_URL}/verify-otp`, { method: 'POST', body: JSON.stringify(payload) });
-      
-      const responseText = await res.text();
-      let data;
-      try { data = JSON.parse(responseText); } catch (parseError) { throw new Error("Server connection failed during OTP verification."); }
-
-      setIsRecoveryLoading(false);
-      if (data.success) { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setRecoveryStep('RESET_PIN'); } 
-      else { setOtpInput(''); triggerRecoveryShake(); await logActivity('Auth', 'FAILED_RECOVERY_ATTEMPT', 'Invalid OTP entered.', 'CRITICAL'); }
-    } catch (error) { setIsRecoveryLoading(false); setOtpInput(''); triggerRecoveryShake(); Alert.alert("Error", error.message); }
-  };
-
-  const handleRecoveryCodeSubmit = async () => {
-    Keyboard.dismiss();
-    const cleanInput = codeInput.replace(/[^0-9]/g, ''); const cleanSaved = savedCode ? savedCode.replace(/[^0-9]/g, '') : '';
-    if (cleanInput === cleanSaved && cleanSaved !== '') { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setRecoveryStep('RESET_PIN'); } 
-    else { setCodeInput(''); triggerRecoveryShake(); await logActivity('Auth', 'FAILED_UNLOCK_ATTEMPT', `Invalid Recovery Code attempt.`, 'CRITICAL'); }
-  };
-
-  const saveNewMasterPin = async () => {
-    if (resetStep === 1) {
-      if (newPin.length === 4) { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setResetStep(2); } else { triggerRecoveryShake(); }
-    } else {
-      if (confirmNewPin.length < 4) return;
-      if (newPin === confirmNewPin) {
-        setIsRecoveryLoading(true);
-        setTimeout(async () => {
-          try {
-            await CryptoEngine.setupVaultKey(newPin);
-            const vaultKey = await CryptoEngine.getVaultKey(newPin);
-            if (!vaultKey) throw new Error("Key generation failed!");
-            setActiveVaultKey(vaultKey);
-            await saveMasterPin(newPin); 
-            try { const db = getDB(); if (db) db.runSync('DELETE FROM entries'); } catch (dbErr) { console.log("DB Wipe Ignored: ", dbErr); }
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            setIsRecoveryLoading(false); setSavedPin(newPin); closeRecoveryModal();
-            await logActivity('Auth', 'PIN_RESET_RECOVERY', 'Master PIN reset successfully.', 'CRITICAL');
-            Alert.alert("Vault Secured ✅", "New Master PIN saved. Note: Previous encrypted entries have been wiped for security.");
-          } catch (error) { setIsRecoveryLoading(false); Alert.alert("Error", "Something went wrong. Please try again."); }
-        }, 100);
-      } else { triggerRecoveryShake(); setConfirmNewPin(''); setResetStep(1); }
-    }
-  };
-
+  // 💎 ULTRA-MINIMALIST GHOST KEYPAD BUTTON (No background circle until pressed)
   const KeypadButton = ({ num, onPress, icon, onLongPress }) => {
     const scaleAnim = useRef(new Animated.Value(1)).current;
-    const handlePressIn = () => { Animated.spring(scaleAnim, { toValue: 0.88, speed: 40, bounciness: 8, useNativeDriver: true }).start(); };
-    const handlePressOut = () => { Animated.spring(scaleAnim, { toValue: 1, speed: 30, bounciness: 12, useNativeDriver: true }).start(); };
+    const bgOpacity = useRef(new Animated.Value(0)).current; 
+    
+    const handlePressIn = () => { 
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      Animated.parallel([
+        Animated.spring(scaleAnim, { toValue: 0.85, speed: 40, bounciness: 8, useNativeDriver: true }),
+        Animated.timing(bgOpacity, { toValue: 1, duration: 100, useNativeDriver: true })
+      ]).start(); 
+    };
+    const handlePressOut = () => { 
+      Animated.parallel([
+        Animated.spring(scaleAnim, { toValue: 1, speed: 30, bounciness: 12, useNativeDriver: true }),
+        Animated.timing(bgOpacity, { toValue: 0, duration: 250, useNativeDriver: true })
+      ]).start(); 
+    };
 
     return (
       <Pressable onPressIn={handlePressIn} onPressOut={handlePressOut} onPress={onPress} onLongPress={onLongPress}>
         <Animated.View style={[styles.padButton, { transform: [{ scale: scaleAnim }] }]}>
-          {icon ? icon : <Text style={[styles.padButtonText, { color: isDark ? '#FFFFFF' : '#111827' }]}>{num}</Text>}
+          {/* Subtle ghost background only visible on press */}
+          <Animated.View style={[StyleSheet.absoluteFill, { borderRadius: 37, backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', opacity: bgOpacity }]} />
+          {icon ? icon : <Text style={[styles.padButtonText, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>{num}</Text>}
         </Animated.View>
       </Pressable>
     );
   };
 
   return (
-    <View style={[styles.containerMain, { backgroundColor: isDark ? '#000000' : '#F8FAFC' }]}>
+    <View style={[styles.containerMain, { backgroundColor: isDark ? '#020617' : '#FFFFFF' }]}>
+      
+      {appState !== 'active' && (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 9999 }]}>
+          <BlurView intensity={100} style={StyleSheet.absoluteFill} tint={isDark ? "dark" : "light"} />
+          <View style={{flex: 1, backgroundColor: isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)', justifyContent: 'center', alignItems: 'center'}}>
+             <View style={styles.blurShieldBox}><Feather name="shield" size={48} color={primaryColor} /></View>
+             <Text style={{marginTop: 16, fontSize: 20, fontWeight: '900', color: isDark ? '#F8FAFC' : '#0F172A', letterSpacing: -0.5}}>Vault Locked</Text>
+          </View>
+        </View>
+      )}
+
       <SafeAreaView style={styles.safeAreaFlex}>
         <Animated.View style={[styles.mainContent, { opacity: entranceAnim, transform: [{ translateY: entranceAnim.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) }] }]}>
           
-          <View style={[styles.topBlock, { marginTop: insets.top + 40 }]}>
-            <View style={styles.heroContainer}><Feather name={isFirstTime ? "shield" : "lock"} size={36} color={primaryColor} /></View>
+          {/* TOP SECTION: Fully Minimalist */}
+          <View style={styles.topBlock}>
+            <Feather name={isFirstTime ? "shield" : "lock"} size={32} color={primaryColor} style={{ marginBottom: 16 }} />
             <Text style={[styles.appName, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>SafeLocker</Text>
             <Text style={[styles.subtitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>{isFirstTime ? (setupStep === 1 ? "Create 4-digit Master PIN" : "Confirm Master PIN") : dynamicSubtitle}</Text>
           </View>
 
+          {/* DOTS SECTION */}
           <Animated.View style={[styles.pinDisplayContainer, { transform: [{ translateX: shakeAnim }] }]}>
             {lockoutTimer > 0 ? (
-              <View style={[styles.lockoutBox, { backgroundColor: isDark ? '#3D2A2A' : '#FEF2F2' }]}><Feather name="alert-triangle" size={14} color="#EF4444" /><Text style={styles.lockoutText}>Try again in {lockoutTimer}s</Text></View>
+              <View style={[styles.lockoutBox, { backgroundColor: isDark ? '#450A0A' : '#FEF2F2' }]}><Feather name="alert-triangle" size={14} color="#EF4444" /><Text style={styles.lockoutText}>Try again in {lockoutTimer}s</Text></View>
             ) : isDecrypting ? (
-              <ActivityIndicator size="large" color={primaryColor} style={{ paddingVertical: 10 }} />
+              <ActivityIndicator size="small" color={primaryColor} style={{ paddingVertical: 8 }} />
             ) : isError ? (
               <Text style={[styles.errorText, { color: '#EF4444' }]}>{isFirstTime ? 'PINs do not match' : 'Incorrect PIN'}</Text>
             ) : (
               <View style={styles.dotsContainer}>
                 {[0, 1, 2, 3].map(i => (
                   <View key={i} style={[styles.dotWrapper]}>
-                    <Animated.View style={[styles.dotFluid, { backgroundColor: pin.length > i ? primaryColor : (isDark ? '#334155' : '#E2E8F0'), transform: [{ scale: dotScales[i] }], shadowColor: pin.length > i ? primaryColor : 'transparent' }]} />
+                    <Animated.View style={[styles.dotFluid, { 
+                      backgroundColor: pin.length > i ? primaryColor : (isDark ? '#334155' : '#E2E8F0'), 
+                      transform: [{ scale: dotScales[i] }], 
+                      shadowColor: pin.length > i ? primaryColor : 'transparent' 
+                    }]} />
                   </View>
                 ))}
               </View>
             )}
           </Animated.View>
 
+          {/* FORGOT PIN TEXT */}
           <View style={styles.forgotPinWrapper}>
             {!isFirstTime && (
               <Pressable onPress={openRecoveryModal} style={({ pressed }) => [pressed && { transform: [{ scale: 0.96 }], opacity: 0.8 }]}>
@@ -465,18 +402,20 @@ export default function LockScreen({ navigation }) {
             )}
           </View>
 
-          <View style={{flex: 1}} /> 
+          {/* REDUCED GAP TO KEYPAD */}
+          <View style={{ height: 40 }} /> 
 
+          {/* 💎 SLEEK BARE-BONES KEYPAD */}
           <View style={styles.keypadWrapper}>
             {[[1,2,3], [4,5,6], [7,8,9]].map((row, i) => (
               <View key={i} style={styles.padRow}>{row.map(num => <KeypadButton key={num} num={num.toString()} onPress={() => handleKeyPress(num.toString())} />)}</View>
             ))}
             <View style={styles.padRow}>
               {isFirstTime ? ( <View style={styles.emptyButtonSpace} /> ) : (
-                <KeypadButton onPress={() => triggerBiometric(false)} icon={<MaterialIcons name="fingerprint" size={32} color={lockProfile === 'BIO_OR_PIN' ? primaryColor : (isDark ? '#475569' : '#94A3B8')} />} />
+                <KeypadButton onPress={() => triggerBiometric(false)} icon={<MaterialIcons name="fingerprint" size={28} color={lockProfile === 'BIO_OR_PIN' ? primaryColor : (isDark ? '#475569' : '#94A3B8')} />} />
               )}
               <KeypadButton num="0" onPress={() => handleKeyPress('0')} />
-              <KeypadButton onPress={handleDelete} onLongPress={clearAllPin} icon={<Feather name="delete" size={26} color={isDark ? '#F8FAFC' : '#0F172A'} />} />
+              <KeypadButton onPress={handleDelete} onLongPress={clearAllPin} icon={<Feather name="delete" size={24} color={isDark ? '#F8FAFC' : '#0F172A'} />} />
             </View>
           </View>
         </Animated.View>
@@ -484,10 +423,10 @@ export default function LockScreen({ navigation }) {
 
       <Modal visible={mandatoryEmailModal} transparent animationType="fade">
         <View style={styles.modalOverlayCenter}>
-          <View style={[styles.onboardingCard, { backgroundColor: themeColors.card }]}>
+          <View style={[styles.onboardingCard, { backgroundColor: isDark ? themeColors.card : '#FFFFFF', borderColor: isDark ? '#334155' : '#E2E8F0' }]}>
             <View style={[styles.onboardingIconBox, { backgroundColor: primaryColor + '15' }]}><Feather name="mail" size={32} color={primaryColor} /></View>
-            <Text style={[styles.onboardingTitle, { color: themeColors.textDark }]}>Action Required</Text>
-            <Text style={[styles.onboardingSub, { color: themeColors.textLight }]}>Adding a recovery email is mandatory to secure your vault.</Text>
+            <Text style={[styles.onboardingTitle, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>Action Required</Text>
+            <Text style={[styles.onboardingSub, { color: isDark ? '#94A3B8' : '#64748B' }]}>Adding a recovery email is mandatory to secure your vault from permanent data loss.</Text>
             <TouchableOpacity style={[styles.onboardingBtnActionFull, { backgroundColor: primaryColor }]} onPress={handleGoToEmailSetup}>
               <Text style={styles.onboardingBtnTextAction}>Set up Email</Text>
             </TouchableOpacity>
@@ -495,25 +434,6 @@ export default function LockScreen({ navigation }) {
         </View>
       </Modal>
 
-      <Modal visible={recoveryModalVisible} transparent animationType="fade" onRequestClose={closeRecoveryModal}>
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <KeyboardAvoidingView behavior="padding" style={styles.modalOverlayCenter}>
-            <Animated.View style={[styles.premiumRecoveryCard, { backgroundColor: themeColors.card, transform: [{ scale: recoveryScaleAnim }, { translateX: recoveryShakeAnim }] }]}>
-              {/* Add your recovery modal UI content here as in original code... */}
-            </Animated.View>
-          </KeyboardAvoidingView>
-        </TouchableWithoutFeedback>
-      </Modal>
-
-      {appState !== 'active' && (
-        <View style={StyleSheet.absoluteFill}>
-          <BlurView intensity={100} style={StyleSheet.absoluteFill} tint={isDark ? "dark" : "light"} />
-          <View style={{flex: 1, backgroundColor: isDark ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.4)', justifyContent: 'center', alignItems: 'center'}}>
-             <Feather name="shield" size={60} color={primaryColor} />
-             <Text style={{marginTop: 12, fontSize: 18, fontWeight: '800', color: isDark ? '#F8FAFC' : '#0F172A'}}>Vault Protected</Text>
-          </View>
-        </View>
-      )}
     </View>
   );
 }
@@ -521,38 +441,40 @@ export default function LockScreen({ navigation }) {
 const styles = StyleSheet.create({
   containerMain: { flex: 1 }, 
   safeAreaFlex: { flex: 1 }, 
-  mainContent: { flex: 1, alignItems: 'center', paddingBottom: 24 },
+  mainContent: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 16 }, // Perfectly vertically centered
   
-  topBlock: { alignItems: 'center', width: '100%', marginBottom: 16 }, 
-  heroContainer: { marginBottom: 12 }, 
-  appName: { fontSize: 26, fontWeight: '800', letterSpacing: -0.5 }, 
-  subtitle: { fontSize: 15, marginTop: 4, fontWeight: '500' },
+  // 💎 Ultra-Minimalist Top Block
+  topBlock: { alignItems: 'center', width: '100%', marginBottom: 12 }, 
+  appName: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4 }, 
+  subtitle: { fontSize: 14, marginTop: 4, fontWeight: '500' },
   
-  pinDisplayContainer: { minHeight: 40, justifyContent: 'center', alignItems: 'center', marginTop: 10, marginBottom: 20 }, 
+  // 💎 Minimalist Dots
+  pinDisplayContainer: { minHeight: 32, justifyContent: 'center', alignItems: 'center', marginTop: 32, marginBottom: 16 }, 
   dotsContainer: { flexDirection: 'row', gap: 20 }, 
-  dotWrapper: { width: 18, height: 18, justifyContent: 'center', alignItems: 'center' },
-  dotFluid: { width: 14, height: 14, borderRadius: 7, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 4 },
+  dotWrapper: { width: 16, height: 16, justifyContent: 'center', alignItems: 'center' },
+  dotFluid: { width: 12, height: 12, borderRadius: 6, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 3 },
   
-  errorText: { fontSize: 15, fontWeight: '700' }, 
-  lockoutBox: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 100 }, 
-  lockoutText: { color: '#EF4444', fontSize: 14, fontWeight: '700', marginLeft: 8 },
+  errorText: { fontSize: 14, fontWeight: '800' }, 
+  lockoutBox: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 100 }, 
+  lockoutText: { color: '#EF4444', fontSize: 13, fontWeight: '800', marginLeft: 8 },
   
-  forgotPinWrapper: { minHeight: 30, justifyContent: 'center', alignItems: 'center' }, 
-  forgotPinText: { fontSize: 14, fontWeight: '700' },
+  forgotPinWrapper: { minHeight: 24, justifyContent: 'center', alignItems: 'center' }, 
+  forgotPinText: { fontSize: 13, fontWeight: '800' },
   
-  keypadWrapper: { alignItems: 'center', marginBottom: 20 }, 
-  padRow: { flexDirection: 'row', gap: 24, marginBottom: 12 }, 
-  padButton: { width: 80, height: 80, borderRadius: 40, justifyContent: 'center', alignItems: 'center', backgroundColor: 'transparent' }, 
+  // 💎 Minimalist Bare Keypad
+  keypadWrapper: { alignItems: 'center', marginBottom: 16 }, 
+  padRow: { flexDirection: 'row', gap: 24, marginBottom: 16 }, 
+  padButton: { width: 74, height: 74, borderRadius: 37, justifyContent: 'center', alignItems: 'center', backgroundColor: 'transparent' }, 
   padButtonText: { fontSize: 32, fontWeight: '300', fontFamily: Platform.OS === 'ios' ? 'HelveticaNeue-Light' : 'sans-serif-light' }, 
-  emptyButtonSpace: { width: 80, height: 80 },
+  emptyButtonSpace: { width: 74, height: 74 },
   
-  modalOverlayCenter: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: 24 }, 
-  onboardingCard: { width: '100%', borderRadius: 36, padding: 28, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' }, 
-  onboardingIconBox: { width: 64, height: 64, borderRadius: 32, justifyContent: 'center', alignItems: 'center', marginBottom: 20 }, 
-  onboardingTitle: { fontSize: 22, fontWeight: '800', marginBottom: 12, textAlign: 'center' }, 
-  onboardingSub: { fontSize: 14, textAlign: 'center', lineHeight: 22, marginBottom: 24 }, 
-  onboardingBtnActionFull: { width: '100%', height: 56, justifyContent: 'center', alignItems: 'center', borderRadius: 100 }, 
-  onboardingBtnTextAction: { color: '#FFF', fontSize: 16, fontWeight: '800' },
+  blurShieldBox: { width: 100, height: 100, borderRadius: 32, backgroundColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
   
-  premiumRecoveryCard: { width: '100%', borderRadius: 36, paddingHorizontal: 24, paddingVertical: 32, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' }
+  modalOverlayCenter: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 24 }, 
+  onboardingCard: { width: '100%', maxWidth: 340, borderRadius: 40, padding: 32, alignItems: 'center', borderWidth: 1 }, 
+  onboardingIconBox: { width: 72, height: 72, borderRadius: 36, justifyContent: 'center', alignItems: 'center', marginBottom: 24 }, 
+  onboardingTitle: { fontSize: 24, fontWeight: '900', marginBottom: 12, textAlign: 'center', letterSpacing: -0.5 }, 
+  onboardingSub: { fontSize: 15, textAlign: 'center', lineHeight: 24, marginBottom: 32, fontWeight: '500' }, 
+  onboardingBtnActionFull: { width: '100%', height: 56, justifyContent: 'center', alignItems: 'center', borderRadius: 100, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 12, elevation: 8 }, 
+  onboardingBtnTextAction: { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.5 }
 });

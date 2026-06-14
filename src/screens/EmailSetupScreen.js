@@ -8,6 +8,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient'; 
 import * as Haptics from 'expo-haptics';
+import { BlurView } from 'expo-blur'; // 🔥 Added for Premium Info Popup
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ThemeContext } from '../ThemeContext';
@@ -100,6 +101,9 @@ export default function EmailSetupScreen({ navigation }) {
   const [showRemoveCongratsModal, setShowRemoveCongratsModal] = useState(false); 
   const [showOnboardingCompleteModal, setShowOnboardingCompleteModal] = useState(false);
   
+  // 💡 STATE FOR INFO POPUP
+  const [infoModalVisible, setInfoModalVisible] = useState(false);
+
   const [showSecureSessionWarning, setShowSecureSessionWarning] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
 
@@ -112,6 +116,8 @@ export default function EmailSetupScreen({ navigation }) {
   const removeEmailScaleAnim = useRef(new Animated.Value(0)).current;
   const smileSlideAnim = useRef(new Animated.Value(-100)).current;
   const sadSlideAnim = useRef(new Animated.Value(-100)).current;
+  const infoScale = useRef(new Animated.Value(0.85)).current;
+  const infoOpacity = useRef(new Animated.Value(0)).current;
 
   const otpInputRef = useRef(null);
   const oldOtpInputRef = useRef(null);
@@ -149,6 +155,23 @@ export default function EmailSetupScreen({ navigation }) {
   const restoreLockStateSafe = async () => { 
     if (lockWasOnRef.current) { await updateSetting('lockOnExit', true); lockWasOnRef.current = false; } 
     global.activeFlow = 'NORMAL'; global.ignoreAppLock = false; global.isAuthenticating = false;
+  };
+
+  // 💡 INFO POPUP CONTROLS
+  const showInfoPopup = () => {
+    setInfoModalVisible(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Animated.parallel([
+      Animated.spring(infoScale, { toValue: 1, friction: 7, tension: 50, useNativeDriver: true }),
+      Animated.timing(infoOpacity, { toValue: 1, duration: 200, useNativeDriver: true })
+    ]).start();
+  };
+
+  const closeInfoPopup = () => {
+    Animated.parallel([
+      Animated.timing(infoScale, { toValue: 0.85, duration: 200, useNativeDriver: true }),
+      Animated.timing(infoOpacity, { toValue: 0, duration: 200, useNativeDriver: true })
+    ]).start(() => setInfoModalVisible(false));
   };
 
   const runSmileAnimationFlow = () => {
@@ -317,10 +340,73 @@ export default function EmailSetupScreen({ navigation }) {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#121212' : '#FAFAFB' }]}>
       
+      {/* 🚀 PREMIUM INFO GUIDE OVERLAY (I-BUTTON POPUP) */}
+      {infoModalVisible && (
+        <Modal transparent animationType="fade" visible={true} onRequestClose={closeInfoPopup}>
+          <View style={styles.premiumSuccessOverlay}>
+            <BlurView intensity={25} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
+            <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={closeInfoPopup} />
+            
+            <Animated.View style={[styles.infoCard, { backgroundColor: isDark ? themeColors.card : '#FFFFFF', borderColor: isDark ? '#334155' : '#E2E8F0', transform: [{ scale: infoScale }], opacity: infoOpacity }]}>
+              
+              <View style={[styles.infoIconBox, { backgroundColor: primaryColor + '15' }]}>
+                <Feather name="mail" size={28} color={primaryColor} />
+              </View>
+              
+              <Text style={[styles.infoTitle, { color: isDark ? '#FFF' : '#111827' }]}>OTP Delivery Guide</Text>
+              <Text style={[styles.infoSub, { color: themeColors.textLight }]}>Having trouble finding your verification code?</Text>
+              
+              <View style={styles.infoListContainer}>
+                <View style={styles.infoRow}>
+                  <Feather name="alert-circle" size={20} color={primaryColor} style={styles.infoRowIcon} />
+                  <View style={styles.infoTextContainer}>
+                    <Text style={[styles.infoRowTitle, { color: isDark ? '#E2E8F0' : '#1F2937' }]}>Check Spam or Junk</Text>
+                    <Text style={[styles.infoRowSub, { color: isDark ? '#94A3B8' : '#6B7280' }]}>Automated verification emails often get flagged by providers like Gmail. Please check your spam folder.</Text>
+                  </View>
+                </View>
+                
+                <View style={styles.infoRow}>
+                  <Feather name="check-circle" size={20} color={primaryColor} style={styles.infoRowIcon} />
+                  <View style={styles.infoTextContainer}>
+                    <Text style={[styles.infoRowTitle, { color: isDark ? '#E2E8F0' : '#1F2937' }]}>Mark as "Not Spam"</Text>
+                    <Text style={[styles.infoRowSub, { color: isDark ? '#94A3B8' : '#6B7280' }]}>If you find the OTP in spam, mark it as safe. This ensures future recovery codes arrive directly in your inbox.</Text>
+                  </View>
+                </View>
+
+                <View style={styles.infoRow}>
+                  <Feather name="clock" size={20} color={primaryColor} style={styles.infoRowIcon} />
+                  <View style={styles.infoTextContainer}>
+                    <Text style={[styles.infoRowTitle, { color: isDark ? '#E2E8F0' : '#1F2937' }]}>Network Delays</Text>
+                    <Text style={[styles.infoRowSub, { color: isDark ? '#94A3B8' : '#6B7280' }]}>Sometimes mail servers experience heavy traffic. It may take up to 2 minutes for the email to arrive.</Text>
+                  </View>
+                </View>
+              </View>
+
+              <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: primaryColor, height: 52, marginTop: 10, width: '100%' }]} onPress={closeInfoPopup}>
+                <Text style={styles.btnText}>I Understand</Text>
+              </TouchableOpacity>
+
+            </Animated.View>
+          </View>
+        </Modal>
+      )}
+
+      {/* 🔥 SYMMETRIC HEADER WITH I-BUTTON */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={handleBackPress} style={[styles.backBtn, { backgroundColor: isDark ? themeColors.inputBg : '#FFFFFF' }]}><Feather name="arrow-left" size={24} color={isDark ? '#FFF' : '#111827'} /></TouchableOpacity>
+        <TouchableOpacity onPress={handleBackPress} style={[styles.backBtn, { backgroundColor: isDark ? themeColors.inputBg : '#FFFFFF' }]}>
+          <Feather name="arrow-left" size={22} color={isDark ? '#FFF' : '#111827'} />
+        </TouchableOpacity>
+        
         <Text style={[styles.headerTitle, { color: isDark ? '#FFF' : '#111827' }]}>Recovery Email</Text>
-        <View style={{ width: 44 }} />
+        
+        {/* Right Info Button (Shows only on OTP screen) */}
+        {viewState === 'OTP' ? (
+          <TouchableOpacity onPress={showInfoPopup} style={[styles.backBtn, { backgroundColor: isDark ? themeColors.inputBg : '#FFFFFF' }]}>
+            <Feather name="info" size={22} color={isDark ? '#FFF' : '#111827'} />
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 44, height: 44 }} />
+        )}
       </View>
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
@@ -363,8 +449,17 @@ export default function EmailSetupScreen({ navigation }) {
               <Text style={[styles.subtitle, { color: themeColors.textLight }]}>Adding an email ensures you can recover your vault if you forget your Master PIN.</Text>
               <TextInput style={[styles.inputBox, { backgroundColor: isDark ? themeColors.inputBg : '#FFF', color: isDark ? '#FFF' : '#111827', borderColor: isDark ? themeColors.separator : '#E5E7EB' }]} placeholder="Enter new email address" placeholderTextColor={themeColors.textLight} keyboardType="email-address" autoCapitalize="none" value={newEmail} onChangeText={setNewEmail} />
               
-              <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: themeColors.primary }]} onPress={sendOtp} disabled={isLoading}>
-                {isLoading ? ( <View style={{flexDirection: 'row', alignItems: 'center'}}><ActivityIndicator color="#FFF" style={{marginRight: 8}} /><Text style={{color: '#FFF', fontWeight: 'bold'}}>{loadingText || 'Sending...'}</Text></View> ) : ( <Text style={styles.btnText}>Send Code</Text> )}
+              {/* 🔥 FIXED SHADOW BLEED LOGIC HERE */}
+              <TouchableOpacity 
+                style={[
+                  styles.primaryBtn, 
+                  { backgroundColor: newEmail.includes('@') && !isLoading ? themeColors.primary : themeColors.primary + '40' },
+                  (!newEmail.includes('@') || isLoading) && { elevation: 0, shadowOpacity: 0 }
+                ]} 
+                onPress={sendOtp} 
+                disabled={isLoading || !newEmail.includes('@')}
+              >
+                {isLoading ? ( <View style={{flexDirection: 'row', alignItems: 'center'}}><ActivityIndicator color="#FFF" style={{marginRight: 8}} /><Text style={{color: '#FFF', fontWeight: 'bold'}}>{loadingText || 'Sending...'}</Text></View> ) : ( <Text style={[styles.btnText, !newEmail.includes('@') && {opacity: 0.8}]}>Send Code</Text> )}
               </TouchableOpacity>
             </View>
           )}
@@ -377,8 +472,17 @@ export default function EmailSetupScreen({ navigation }) {
               
               <OTPInputBox value={otp} setValue={setOtp} inputRef={otpInputRef} isDark={isDark} themeColors={themeColors} />
               
-              <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: otp.length === 6 ? themeColors.primary : themeColors.primary + '80' }]} onPress={verifyOtp} disabled={isLoading || otp.length !== 6}>
-                {isLoading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.btnText}>Verify & Save</Text>}
+              {/* 🔥 FIXED SHADOW BLEED LOGIC HERE */}
+              <TouchableOpacity 
+                style={[
+                  styles.primaryBtn, 
+                  { backgroundColor: otp.length === 6 && !isLoading ? themeColors.primary : themeColors.primary + '40' },
+                  (otp.length !== 6 || isLoading) && { elevation: 0, shadowOpacity: 0 }
+                ]} 
+                onPress={verifyOtp} 
+                disabled={isLoading || otp.length !== 6}
+              >
+                {isLoading ? <ActivityIndicator color="#FFF" /> : <Text style={[styles.btnText, otp.length !== 6 && {opacity: 0.8}]}>Verify & Save</Text>}
               </TouchableOpacity>
 
               <View style={{ alignItems: 'center', marginBottom: 24, marginTop: 24 }}>
@@ -390,6 +494,7 @@ export default function EmailSetupScreen({ navigation }) {
         </ScrollView>
       </KeyboardAvoidingView>
 
+      {/* --- MODALS --- */}
       <Modal visible={showSecureSessionWarning} animationType="fade" transparent={true}>
         <View style={styles.modalOverlayCenter}>
           <View style={[styles.modalContent, { backgroundColor: themeColors.card }]}>
@@ -413,7 +518,19 @@ export default function EmailSetupScreen({ navigation }) {
             <OTPInputBox value={oldOtp} setValue={setOldOtp} inputRef={oldOtpInputRef} isDark={isDark} themeColors={themeColors} />
             <View style={styles.resetBtnRow}>
               <TouchableOpacity style={[styles.resetBtnCancelHalf, { backgroundColor: themeColors.inputBg }]} onPress={async () => { setChangeEmailModalVisible(false); await restoreLockStateSafe(); }}><Text style={{ color: themeColors.textLight, fontSize: 15, fontWeight: '700' }}>Cancel</Text></TouchableOpacity>
-              <TouchableOpacity style={[styles.resetBtnActionHalf, { backgroundColor: oldOtp.length === 6 ? themeColors.primary : themeColors.primary + '60' }]} onPress={verifyOldOtp} disabled={isChangingEmail || oldOtp.length !== 6}>{isChangingEmail ? <ActivityIndicator color="#FFF" /> : <Text style={{ color: '#FFF', fontSize: 15, fontWeight: '800' }}>Verify</Text>}</TouchableOpacity>
+              
+              {/* 🔥 FIXED SHADOW BLEED LOGIC HERE */}
+              <TouchableOpacity 
+                style={[
+                  styles.resetBtnActionHalf, 
+                  { backgroundColor: oldOtp.length === 6 ? themeColors.primary : themeColors.primary + '40' },
+                  oldOtp.length !== 6 && { elevation: 0, shadowOpacity: 0 }
+                ]} 
+                onPress={verifyOldOtp} 
+                disabled={isChangingEmail || oldOtp.length !== 6}
+              >
+                {isChangingEmail ? <ActivityIndicator color="#FFF" /> : <Text style={{ color: '#FFF', fontSize: 15, fontWeight: '800', opacity: oldOtp.length !== 6 ? 0.8 : 1 }}>Verify</Text>}
+              </TouchableOpacity>
             </View>
           </Animated.View>
         </KeyboardAvoidingView>
@@ -429,7 +546,19 @@ export default function EmailSetupScreen({ navigation }) {
             <OTPInputBox value={removeOtp} setValue={setRemoveOtp} inputRef={removeOtpInputRef} isDark={isDark} themeColors={themeColors} isDanger />
             <View style={styles.resetBtnRow}>
               <TouchableOpacity style={[styles.resetBtnCancelHalf, { backgroundColor: themeColors.inputBg }]} onPress={async () => { setRemoveEmailModalVisible(false); await restoreLockStateSafe(); }}><Text style={{ color: themeColors.textLight, fontSize: 15, fontWeight: '700' }}>Cancel</Text></TouchableOpacity>
-              <TouchableOpacity style={[styles.resetBtnActionHalf, { backgroundColor: removeOtp.length === 6 ? '#EF4444' : '#FCA5A5' }]} onPress={verifyRemoveOtp} disabled={isRemovingEmail || removeOtp.length !== 6}>{isRemovingEmail ? <ActivityIndicator color="#FFF" /> : <Text style={{ color: '#FFF', fontSize: 15, fontWeight: '800' }}>Remove</Text>}</TouchableOpacity>
+              
+              {/* 🔥 FIXED SHADOW BLEED LOGIC HERE */}
+              <TouchableOpacity 
+                style={[
+                  styles.resetBtnActionHalf, 
+                  { backgroundColor: removeOtp.length === 6 ? '#EF4444' : '#EF4444' + '40' },
+                  removeOtp.length !== 6 && { elevation: 0, shadowOpacity: 0 }
+                ]} 
+                onPress={verifyRemoveOtp} 
+                disabled={isRemovingEmail || removeOtp.length !== 6}
+              >
+                {isRemovingEmail ? <ActivityIndicator color="#FFF" /> : <Text style={{ color: '#FFF', fontSize: 15, fontWeight: '800', opacity: removeOtp.length !== 6 ? 0.8 : 1 }}>Remove</Text>}
+              </TouchableOpacity>
             </View>
           </Animated.View>
         </KeyboardAvoidingView>
@@ -438,7 +567,7 @@ export default function EmailSetupScreen({ navigation }) {
       <Modal visible={showCongratsModal} transparent animationType="fade">
         <View style={styles.modalOverlayCenter}>
           <Animated.View style={[styles.congratsCard, { backgroundColor: themeColors.card, transform: [{ scale: scaleAnim }] }]}>
-            <Animated.View style={{ alignItems: 'center', justifyContent: 'center', position: 'relative', transform: [{translateY: smileSlideAnim}] }}><Animated.Text style={{fontSize: 64, position: 'absolute', top: -110}}>😊</Animated.Text><Text style={[styles.congratsTitle, { color: themeColors.textDark, fontWeight: '900', marginTop: 15 }]}>Verified!</Text></Animated.View>
+            <Animated.View style={{ alignItems: 'center', justifyContent: 'center', position: 'relative', transform: [{translateY: smileSlideAnim}] }}><Animated.Text style={{fontSize: 64, position: 'absolute', top: -110}}>🎉</Animated.Text><Text style={[styles.congratsTitle, { color: themeColors.textDark, fontWeight: '900', marginTop: 15 }]}>Verified!</Text></Animated.View>
             <Text style={[styles.congratsSub, {color: themeColors.textLight}]}>Your email has been securely linked. Redirecting...</Text>
             <ActivityIndicator size="small" color="#10B981" style={{marginTop: 10}} />
           </Animated.View>
@@ -448,7 +577,7 @@ export default function EmailSetupScreen({ navigation }) {
       <Modal visible={showRemoveCongratsModal} transparent animationType="fade">
         <View style={styles.modalOverlayCenter}>
           <Animated.View style={[styles.congratsCard, { backgroundColor: themeColors.card, transform: [{ scale: sadScaleAnim }] }]}>
-            <Animated.View style={{ alignItems: 'center', justifyContent: 'center', position: 'relative', transform: [{translateY: sadSlideAnim}] }}><Animated.Text style={{fontSize: 64, position: 'absolute', top: -110}}>😞</Animated.Text><Text style={[styles.congratsTitle, { color: themeColors.textDark, fontWeight: '900', marginTop: 15 }]}>Removed</Text></Animated.View>
+            <Animated.View style={{ alignItems: 'center', justifyContent: 'center', position: 'relative', transform: [{translateY: sadSlideAnim}] }}><Animated.Text style={{fontSize: 64, position: 'absolute', top: -110}}>🗑️</Animated.Text><Text style={[styles.congratsTitle, { color: themeColors.textDark, fontWeight: '900', marginTop: 15 }]}>Removed</Text></Animated.View>
             <Text style={[styles.congratsSub, {color: themeColors.textLight}]}>Your recovery email has been successfully removed. Redirecting...</Text>
             <ActivityIndicator size="small" color={BP_COLORS.danger} style={{marginTop: 10}} />
           </Animated.View>
@@ -461,7 +590,7 @@ export default function EmailSetupScreen({ navigation }) {
             <View style={[styles.pulseCircle, { borderColor: primaryColor + '40', backgroundColor: primaryColor + '10' }]}>
               <View style={[styles.iconCircle, { backgroundColor: primaryColor }]}><Feather name="shield" size={36} color="#FFF" /></View>
             </View>
-            <Text style={[styles.alertTitle, { color: themeColors.textDark }]}>Setup Complete 🎉</Text>
+            <Text style={[styles.alertTitle, { color: themeColors.textDark }]}>Setup Complete 🛡️</Text>
             <Text style={[styles.alertMessage, { color: themeColors.textLight }]}>Your vault is now fully secured with email recovery. Please lock and enter to access your private vault.</Text>
             <TouchableOpacity style={{ width: '100%', height: 60, borderRadius: 16, overflow: 'hidden' }} activeOpacity={0.8} onPress={() => { setShowOnboardingCompleteModal(false); navigation.reset({ index: 0, routes: [{ name: 'Lock' }] }); }}>
               <LinearGradient colors={[primaryColor, primaryColor + 'DD']} style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}>
@@ -479,8 +608,8 @@ export default function EmailSetupScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1 }, 
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: Platform.OS === 'android' ? 40 : 20, paddingBottom: 10 }, 
-  backBtn: { width: 44, height: 44, borderRadius: 14, justifyContent: 'center', alignItems: 'center', elevation: 2 }, 
-  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', textAlign: 'center', marginRight: 44 }, 
+  backBtn: { width: 44, height: 44, borderRadius: 14, justifyContent: 'center', alignItems: 'center', elevation: 2, borderWidth: 1, borderColor: 'rgba(156, 163, 175, 0.15)' }, 
+  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', textAlign: 'center' }, 
   scrollContent: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24 }, centerBlock: { width: '100%', alignItems: 'center', paddingBottom: 40 },
   
   premiumManageCard: { width: '100%', borderRadius: 28, padding: 24, borderWidth: 1.5, elevation: 8, shadowColor: '#000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.1, shadowRadius: 15 },
@@ -495,7 +624,7 @@ const styles = StyleSheet.create({
   iconShieldLarge: { width: 72, height: 72, borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginBottom: 24 }, 
   title: { fontSize: 26, fontWeight: '800', marginBottom: 12, textAlign: 'center', letterSpacing: -0.5 }, subtitle: { fontSize: 15, textAlign: 'center', lineHeight: 22, marginBottom: 32, paddingHorizontal: 10 },
   inputBox: { width: '100%', height: 60, borderRadius: 16, fontSize: 16, paddingHorizontal: 20, marginBottom: 24, borderWidth: 1 }, 
-  primaryBtn: { width: '100%', height: 56, borderRadius: 16, justifyContent: 'center', alignItems: 'center' }, btnText: { color: '#FFF', fontSize: 16, fontWeight: '800' },
+  primaryBtn: { width: '100%', height: 56, borderRadius: 16, justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 5 }, btnText: { color: '#FFF', fontSize: 16, fontWeight: '800' },
   
   otpContainer: { width: '100%', marginBottom: 32, alignItems: 'center' },
   otpContainerInner: { width: '100%', height: 64, position: 'relative' },
@@ -516,6 +645,19 @@ const styles = StyleSheet.create({
   resetModalTitleCompact: { fontSize: 22, fontWeight: '800' },
   resetModalDescCompact: { fontSize: 13, marginTop: 2 },
   resetBtnRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
-  resetBtnActionHalf: { flex: 1, height: 56, borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
-  resetBtnCancelHalf: { flex: 1, height: 56, borderRadius: 16, justifyContent: 'center', alignItems: 'center' }
+  resetBtnActionHalf: { flex: 1, height: 56, borderRadius: 16, justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 5 },
+  resetBtnCancelHalf: { flex: 1, height: 56, borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
+
+  // 💡 PREMIUM INFO POPUP STYLES
+  premiumSuccessOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: 'rgba(0,0,0,0.5)' },
+  infoCard: { width: '100%', maxWidth: 340, padding: 28, borderRadius: 36, alignItems: 'center', shadowColor: '#000', shadowOffset: {width: 0, height: 20}, shadowOpacity: 0.25, shadowRadius: 30, elevation: 20, borderWidth: 1 },
+  infoIconBox: { width: 64, height: 64, borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
+  infoTitle: { fontSize: 22, fontWeight: '900', marginBottom: 6, letterSpacing: -0.5, textAlign: 'center' },
+  infoSub: { fontSize: 14, textAlign: 'center', fontWeight: '500', marginBottom: 24 },
+  infoListContainer: { width: '100%', gap: 16, marginBottom: 24 },
+  infoRow: { flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 4 },
+  infoRowIcon: { marginTop: 2, marginRight: 12 },
+  infoTextContainer: { flex: 1 },
+  infoRowTitle: { fontSize: 15, fontWeight: '800', marginBottom: 4 },
+  infoRowSub: { fontSize: 13, lineHeight: 20, fontWeight: '500' }
 });

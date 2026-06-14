@@ -28,6 +28,8 @@ import {
 import { exportBackup, pickAndAnalyzeBackup, processImportDecryption, processEmailDeviceDecryption } from '../utils/backup';
 import { sendPremiumTestMail } from '../utils/mailService'; 
 
+const API_BASE_URL = 'https://safelockers.sheikhtaj3010.workers.dev';
+
 // NATIVE MATH LOGIC: HSL to HEX
 const hslToHex = (h, s, l) => {
   l /= 100;
@@ -67,6 +69,31 @@ const PREMIUM_5 = [
 ];
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
+// 🔥 SMART INPUT BOX (For Backup OTP)
+const SmartInputBox = ({ value, setValue, inputRef, isDark, themeColors, isError, length = 6 }) => (
+  <View style={styles.otpContainer}>
+    <Pressable style={styles.otpPressableArea} onPress={() => { inputRef.current?.focus(); }}>
+      {Array.from({ length }).map((_, index) => {
+        const isActive = value.length === index;
+        const isFilled = value.length > index;
+        return (
+          <View key={index} style={[styles.otpDigitBoxCompact, { 
+            backgroundColor: isDark ? themeColors.inputBg : '#F9FAFB', 
+            borderColor: isError ? '#EF4444' : (isActive ? themeColors.primary : (isFilled ? themeColors.primary + '50' : (isDark ? '#334155' : '#E5E7EB'))),
+            borderWidth: isError || isActive ? 2 : 1.5,
+          }]}>
+            <Text style={[styles.otpDigitText, { color: isError ? '#EF4444' : (isDark ? '#FFF' : '#111827'), fontSize: 24 }]}>{value[index] || ''}</Text>
+          </View>
+        );
+      })}
+    </Pressable>
+    <TextInput 
+      ref={inputRef} style={styles.hiddenInput} keyboardType="number-pad" autoCapitalize="none"
+      maxLength={length} value={value} onChangeText={setValue} caretHidden={true} autoCorrect={false} blurOnSubmit={false}
+    />
+  </View>
+);
 
 export default function SettingsScreen({ navigation }) {
   const { isDark, toggleTheme, accentName, changeAccentColor, themeColors } = useContext(ThemeContext);
@@ -111,21 +138,26 @@ export default function SettingsScreen({ navigation }) {
   const [lockProfileModal, setLockProfileModal] = useState(false);
   const timerOptions = ['30 sec', '1 min', '2 min', '5 min', '10 min'];
 
-  const [importModal, setImportModal] = useState(false);
+  // 🔥 BACKUP EXPORT & IMPORT STATES
   const [showImportWarning, setShowImportWarning] = useState(false);
   const [showEmailRequiredModal, setShowEmailRequiredModal] = useState(false); 
   const [exportModal, setExportModal] = useState(false); 
   const [isExporting, setIsExporting] = useState(false); 
-  
   const [exportProgress, setExportProgress] = useState(0);
-  const [importProgress, setImportProgress] = useState(0);
-
-  const [pendingAction, setPendingAction] = useState(null); 
+  
+  const [importModal, setImportModal] = useState(false);
   const [backupFileObj, setBackupFileObj] = useState(null);
-  const [isImporting, setIsImporting] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzerStepText, setAnalyzerStepText] = useState('Checking backup...');
-  
+  const [importStep, setImportStep] = useState('INFO'); 
+  const [importLinkedEmail, setImportLinkedEmail] = useState(null);
+  const [maskedImportEmail, setMaskedImportEmail] = useState(null);
+  const [importOtp, setImportOtp] = useState('');
+  const [isImportLoading, setIsImportLoading] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+  const importOtpInputRef = useRef(null);
+
+  const [pendingAction, setPendingAction] = useState(null); 
   const [showRestartModal, setShowRestartModal] = useState(false);
   const [emailRecoveryModal, setEmailRecoveryModal] = useState(false);
   const [recoveryEmailInput, setRecoveryEmailInput] = useState('');
@@ -147,6 +179,7 @@ export default function SettingsScreen({ navigation }) {
   const [smartErrorOptions, setSmartErrorOptions] = useState({ targetModal: null, isLockout: false, isMissingHash: false });
   
   const errorScale = useRef(new Animated.Value(0.9)).current;
+  const shakeAnim = useRef(new Animated.Value(0)).current;
   const lockWasOnRef = useRef(false);
 
   const toastTranslateY = useRef(new Animated.Value(100)).current;
@@ -157,6 +190,16 @@ export default function SettingsScreen({ navigation }) {
   const [isWiping, setIsWiping] = useState(false);
   const [wipeStatusText, setWipeStatusText] = useState('');
   const successAnim = useRef(new Animated.Value(0)).current;
+
+  // Masking Helper Function
+  const maskEmailString = (emailStr) => {
+    if (!emailStr) return '';
+    const parts = emailStr.split('@');
+    if (parts.length === 2 && parts[0].length >= 3) {
+  return `${parts[0].substring(0, 3)}****@${parts[1]}`;
+}
+    return emailStr;
+  };
 
   const showToast = (message, icon = 'check-circle', color = primaryColor) => {
     setToastData({ visible: true, message, icon, color });
@@ -171,6 +214,16 @@ export default function SettingsScreen({ navigation }) {
         Animated.timing(toastOpacity, { toValue: 0, duration: 250, useNativeDriver: true })
       ]).start(() => setToastData(prev => ({ ...prev, visible: false })));
     }, 2500); 
+  };
+
+  const triggerErrorShake = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    Animated.sequence([
+      Animated.timing(shakeAnim, { toValue: 10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 0, duration: 50, useNativeDriver: true })
+    ]).start(); 
   };
 
   const showSmartError = (title, message, options = { targetModal: null, isLockout: false, isMissingHash: false }) => {
@@ -206,6 +259,10 @@ export default function SettingsScreen({ navigation }) {
   useEffect(() => { let interval; if (otpCooldown > 0) interval = setInterval(() => { setOtpCooldown((prev) => prev - 1); }, 1000); return () => clearInterval(interval); }, [otpCooldown]);
 
   useEffect(() => { setLivePreviewColor(themeColors.primary); }, [themeColors.primary]);
+
+  useEffect(() => {
+    if (importStep === 'OTP' && importOtp.length === 6 && !isImportLoading) handleVerifyImportOTP();
+  }, [importOtp]);
 
   useEffect(() => {
     let interval;
@@ -263,10 +320,7 @@ export default function SettingsScreen({ navigation }) {
       setEmailStatus('verified');
       email = email.replace(/['"]+/g, '').trim(); 
       setRawEmail(email); 
-      const parts = email.split('@');
-      if(parts.length === 2 && parts[0].length >= 2) {
-        setMaskedEmail(`${parts[0].substring(0, 2)}••••@${parts[1]}`);
-      } else { setMaskedEmail(email); }
+      setMaskedEmail(maskEmailString(email));
     } 
     else if (email) setEmailStatus('pending'); 
     else setEmailStatus('unverified');
@@ -406,6 +460,7 @@ export default function SettingsScreen({ navigation }) {
     global.activeFlow = 'NORMAL'; global.ignoreAppLock = false; global.isAuthenticating = false;
   };
 
+  // 🔥 BACKUP FLOW: EXPORT
   const handleExportPreCheck = async () => {
     if (isLimited) return showSmartError("Action Disabled", "Export is disabled in Limited Access Mode.");
     const isEmailVerified = await getEmailVerified(); if (!isEmailVerified) return setShowEmailRequiredModal(true);
@@ -435,6 +490,7 @@ export default function SettingsScreen({ navigation }) {
     } catch (e) { setIsExporting(false); setExportModal(false); global.activeFlow = 'NORMAL'; showSmartError("Export Failed", "Something went wrong."); }
   };
 
+  // 🔥 BACKUP FLOW: IMPORT
   const handleImportPreCheck = async () => { const s = await getSettings(); setPendingAction('IMPORT'); if (s?.lockOnExit && !lockWasOnRef.current) setShowImportWarning(true); else executeFilePick(); };
   const handleDisableAndContinueFlow = async () => { 
     await updateSetting('lockOnExit', false); const s = await getSettings(); setSettings(s); lockWasOnRef.current = true; setShowImportWarning(false); 
@@ -446,9 +502,24 @@ export default function SettingsScreen({ navigation }) {
       global.activeFlow = 'IMPORT_FLOW'; 
       setIsAnalyzing(true); setAnalyzerStepText('Checking backup format...');
       const result = await pickAndAnalyzeBackup();
+      
       if (result.success) { 
-        setBackupFileObj(result.data); setAnalyzerStepText('Preparing import...'); 
-        await new Promise(resolve => setTimeout(resolve, 800)); setIsAnalyzing(false); setImportModal(true); 
+        setBackupFileObj(result.data); 
+        setImportOtp('');
+        
+        if (result.data.linkedEmail) {
+            setImportLinkedEmail(result.data.linkedEmail);
+            setMaskedImportEmail(maskEmailString(result.data.linkedEmail));
+            setImportStep('INFO');
+        } else {
+            setImportLinkedEmail(null);
+            setMaskedImportEmail(null);
+            setImportStep('INFO');
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 800)); 
+        setIsAnalyzing(false); 
+        setImportModal(true); 
       } else { 
         setIsAnalyzing(false); await restoreLockStateSafe(); 
         if (!result.cancelled) { showSmartError("Corrupted Backup", result.message || "Invalid file selected."); }
@@ -458,10 +529,53 @@ export default function SettingsScreen({ navigation }) {
     }
   };
 
+  const handleSendImportOTP = async () => {
+    if (!importLinkedEmail) return;
+    setIsImportLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/send-otp`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: importLinkedEmail, otpType: 'VERIFY_EMAIL' })
+      });
+      const data = await res.json();
+      setIsImportLoading(false);
+      
+      if (data.success) {
+        setImportStep('OTP');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setTimeout(() => importOtpInputRef.current?.focus(), 500);
+      } else {
+        Alert.alert('Error', data.message);
+      }
+    } catch (e) {
+      setIsImportLoading(false);
+      Alert.alert('Network Error', 'Ensure backend is running.');
+    }
+  };
+
+  const handleVerifyImportOTP = async () => {
+    Keyboard.dismiss(); setIsImportLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/verify-otp`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: importLinkedEmail, otp: importOtp })
+      });
+      const data = await res.json();
+      setIsImportLoading(false);
+      
+      if (data.success) { 
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); 
+        executeDecryption(); 
+      } else { 
+        setImportOtp(''); triggerErrorShake(); setTimeout(() => importOtpInputRef.current?.focus(), 500); 
+      }
+    } catch (e) { setIsImportLoading(false); setImportOtp(''); triggerErrorShake(); }
+  };
+
   const executeDecryption = async () => {
-    setIsImporting(true); setImportProgress(0);
+    setImportStep('IMPORTING'); setImportProgress(0);
     const result = await processImportDecryption(backupFileObj, '', (val) => setImportProgress(val));
-    setIsImporting(false); setImportProgress(0);
+    setImportProgress(0);
     if (result.success) { 
       setImportModal(false); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setShowRestartModal(true); 
     } else { 
@@ -548,6 +662,24 @@ export default function SettingsScreen({ navigation }) {
            <Feather name={toastData.icon} size={18} color={toastData.color} style={{marginRight: 8}} />
            <Text style={styles.smartToastText}>{toastData.message}</Text>
         </Animated.View>
+      )}
+
+      {smartErrorVisible && (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 99999, elevation: 99999 }]}>
+          <View style={styles.alertOverlayBg}>
+            <Animated.View style={[styles.smartErrorCard, { backgroundColor: themeColors.card, transform: [{ scale: errorScale }] }]}>
+              <View style={[styles.errorIconCircle, { backgroundColor: '#FEF2F2' }]}><Feather name="alert-triangle" size={32} color="#EF4444" /></View>
+              <Text style={[styles.errorTitle, { color: themeColors.textDark }]}>{smartErrorTitle}</Text>
+              <Text style={[styles.errorDesc, { color: themeColors.textLight }]}>{smartErrorMessage}</Text>
+              {smartErrorOptions.isLockout && <Text style={[styles.timerTextDisplay, { color: themeColors.primary }]}>Try again in {lockoutTimeLeft}s</Text>}
+              <View style={styles.errorActions}>
+                <TouchableOpacity style={[styles.errorBtnPrimary, { backgroundColor: primaryColor }]} activeOpacity={0.8} onPress={closeSmartError} disabled={smartErrorOptions.isLockout && lockoutTimeLeft > 0}>
+                  <View style={styles.errorBtnPrimaryGradient}><Text style={styles.errorBtnTryText}>{smartErrorOptions.isLockout ? (lockoutTimeLeft > 0 ? "Locked" : "Try Again") : "Got it"}</Text></View>
+                </TouchableOpacity>
+              </View>
+            </Animated.View>
+          </View>
+        </View>
       )}
 
       <Animated.View style={[styles.stickyHeader, { paddingTop: insets.top, opacity: headerOpacity, backgroundColor: isDark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.85)' }]}>
@@ -682,18 +814,30 @@ export default function SettingsScreen({ navigation }) {
             <View style={[styles.modalContent, { backgroundColor: themeColors.card }]}>
               <View style={{width: 64, height: 64, borderRadius: 32, backgroundColor: themeColors.inputBg, justifyContent: 'center', alignItems: 'center', marginBottom: 16}}><Feather name="upload-cloud" size={32} color={themeColors.primary} /></View>
               <Text style={[styles.modalTitle, { color: themeColors.textDark }]}>Export Backup</Text>
-              <Text style={[styles.modalSub, {textAlign: 'center'}]}>You are about to export a fast direct copy of your vault data.</Text>
+              
+              <View style={{backgroundColor: themeColors.inputBg, padding: 16, borderRadius: 16, marginBottom: 20, width: '100%'}}>
+                 <Text style={{fontSize: 13, color: themeColors.textDark, textAlign: 'center', lineHeight: 20}}>
+                   Your backup will be heavily encrypted and securely locked to your registered email:
+                 </Text>
+                 <Text style={{fontSize: 15, fontWeight: '800', color: themeColors.primary, textAlign: 'center', marginTop: 10}}>
+                   📧 {maskedEmail}
+                 </Text>
+                 <Text style={{fontSize: 12, color: themeColors.textLight, textAlign: 'center', marginTop: 10}}>
+                   You will need access to this email to restore the backup on any device.
+                 </Text>
+              </View>
+
               {isExporting ? (
                  <View style={{width: '100%', marginBottom: 16}}>
                     <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8}}>
-                       <Text style={{color: themeColors.textDark, fontWeight: '700'}}>{exportProgress > 60 ? 'Packing Files...' : 'Collecting Data...'}</Text>
+                       <Text style={{color: themeColors.textDark, fontWeight: '700'}}>{exportProgress > 60 ? 'Packing Files...' : 'Encrypting Data...'}</Text>
                        <Text style={{color: themeColors.primary, fontWeight: '800'}}>{exportProgress}%</Text>
                     </View>
                     <View style={{width: '100%', height: 10, backgroundColor: themeColors.inputBg, borderRadius: 100, overflow: 'hidden'}}><Animated.View style={{width: `${exportProgress}%`, height: '100%', backgroundColor: themeColors.primary, borderRadius: 100}} /></View>
                  </View>
               ) : (
                 <TouchableOpacity style={{width: '100%', height: 56, backgroundColor: themeColors.primary, borderRadius: 100, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginBottom: 12}} onPress={startSecureExport}>
-                  <Feather name="download" size={16} color="#FFF" style={{marginRight: 8}} /><Text style={{color: '#FFF', fontSize: 16, fontWeight: 'bold'}}>Create Backup</Text>
+                  <Feather name="lock" size={16} color="#FFF" style={{marginRight: 8}} /><Text style={{color: '#FFF', fontSize: 16, fontWeight: 'bold'}}>Create Secure Backup</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity style={{width: '100%', height: 50, backgroundColor: 'transparent', borderRadius: 100, justifyContent: 'center', alignItems: 'center'}} onPress={() => !isExporting && setExportModal(false)} disabled={isExporting}><Text style={{color: themeColors.textLight, fontSize: 16, fontWeight: '700'}}>Cancel</Text></TouchableOpacity>
@@ -702,28 +846,67 @@ export default function SettingsScreen({ navigation }) {
         </View>
       </Modal>
 
+      {/* IMPORT BACKUP MODAL (EMAIL OTP FLOW) */}
       {importModal && (
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[StyleSheet.absoluteFill, { zIndex: 9999, elevation: 9999 }]}>
           <View style={StyleSheet.absoluteFill}>
             <View style={styles.alertOverlayBg}>
               <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, width: '100%' }}>
                   <View style={[styles.modalContent, { backgroundColor: themeColors.card, width: '100%' }]}>
-                    <View style={{alignItems: 'center', marginBottom: 16}}><Feather name="rotate-ccw" size={40} color={themeColors.primary} /></View>
-                    <Text style={[styles.modalTitle, {textAlign: 'center', color: themeColors.textDark }]}>Restore Backup</Text>
-                    <View style={{backgroundColor: themeColors.inputBg, padding: 12, borderRadius: 16, marginBottom: 20, width: '100%'}}>
-                      <Text style={{fontSize: 12, color: themeColors.textLight, marginBottom: 4}}>BACKUP DETAILS</Text>
-                      <Text style={{fontSize: 14, color: themeColors.textDark, fontWeight: 'bold'}}>Version: {backupFileObj?.version || 'v7'}</Text>
-                    </View>
-                    {!isImporting ? (
+                    
+                    {importStep === 'INFO' && (
                       <>
-                        <Text style={{fontSize: 14, color: themeColors.textLight, marginBottom: 20, textAlign: 'center'}}>Click restore to load your direct fast backup. No PIN required.</Text>
+                        <View style={{alignItems: 'center', marginBottom: 16}}><Feather name="shield" size={40} color={themeColors.primary} /></View>
+                        <Text style={[styles.modalTitle, {textAlign: 'center', color: themeColors.textDark }]}>Encrypted Backup</Text>
+                        
+                        {importLinkedEmail ? (
+                          <View style={{backgroundColor: themeColors.inputBg, padding: 16, borderRadius: 16, marginBottom: 20, width: '100%'}}>
+                            <Text style={{fontSize: 13, color: themeColors.textLight, textAlign: 'center', marginBottom: 10}}>
+                              This backup is protected and securely locked to the following email address:
+                            </Text>
+                            <Text style={{fontSize: 15, fontWeight: '800', color: themeColors.textDark, textAlign: 'center'}}>
+                              📧 {maskedImportEmail}
+                            </Text>
+                          </View>
+                        ) : (
+                          <View style={{backgroundColor: themeColors.inputBg, padding: 16, borderRadius: 16, marginBottom: 20, width: '100%'}}>
+                            <Text style={{fontSize: 14, color: themeColors.textDark, fontWeight: 'bold', textAlign: 'center'}}>Legacy Backup Found</Text>
+                            <Text style={{fontSize: 13, color: themeColors.textLight, textAlign: 'center', marginTop: 4}}>No email lock detected. Fast restore available.</Text>
+                          </View>
+                        )}
+
+                        <Text style={{fontSize: 13, color: themeColors.textLight, marginBottom: 20, textAlign: 'center'}}>
+                          {importLinkedEmail ? 'To decrypt and restore your data, we need to send a verification OTP to this email.' : 'Click restore to load your direct fast backup.'}
+                        </Text>
+                        
                         <View style={{flexDirection: 'row', justifyContent: 'space-between', width: '100%', gap: 10}}>
-                          <TouchableOpacity style={[styles.modalBtnCancel, { backgroundColor: themeColors.inputBg }]} onPress={async () => { setImportModal(false); setImportKey(''); await restoreLockStateSafe(); }}><Text style={{color: themeColors.textLight, fontWeight: '600'}}>Cancel</Text></TouchableOpacity>
-                          <TouchableOpacity style={[styles.modalBtnAction, { backgroundColor: themeColors.primary }]} onPress={executeDecryption}><Text style={{color: '#FFF', fontWeight: 'bold'}}>Restore Data</Text></TouchableOpacity>
+                          <TouchableOpacity style={[styles.modalBtnCancel, { backgroundColor: themeColors.inputBg }]} onPress={async () => { setImportModal(false); await restoreLockStateSafe(); }}><Text style={{color: themeColors.textLight, fontWeight: '600'}}>Cancel</Text></TouchableOpacity>
+                          <TouchableOpacity style={[styles.modalBtnAction, { backgroundColor: themeColors.primary }]} onPress={() => { importLinkedEmail ? handleSendImportOTP() : executeDecryption() }} disabled={isImportLoading}>
+                             {isImportLoading ? <ActivityIndicator color="#FFF" /> : <Text style={{color: '#FFF', fontWeight: 'bold'}}>{importLinkedEmail ? 'Send OTP' : 'Restore Data'}</Text>}
+                          </TouchableOpacity>
                         </View>
                       </>
-                    ) : (
+                    )}
+
+                    {importStep === 'OTP' && (
+                      <Animated.View style={{width: '100%', transform: [{ translateX: shakeAnim }]}}>
+                        <View style={{alignItems: 'center', marginBottom: 16}}><Feather name="mail" size={40} color={themeColors.primary} /></View>
+                        <Text style={[styles.modalTitle, {textAlign: 'center', color: themeColors.textDark }]}>Verify Identity</Text>
+                        <Text style={{fontSize: 14, color: themeColors.textLight, marginBottom: 20, textAlign: 'center'}}>Enter the 6-digit OTP sent to {maskedImportEmail} to unlock your backup.</Text>
+                        
+                        <SmartInputBox value={importOtp} setValue={setImportOtp} inputRef={importOtpInputRef} isDark={isDark} themeColors={themeColors} isError={false} length={6} />
+                        
+                        {isImportLoading && <ActivityIndicator color={themeColors.primary} style={{ marginTop: 10, marginBottom: 10 }} />}
+                        
+                        <View style={{flexDirection: 'row', justifyContent: 'space-between', width: '100%', gap: 10, marginTop: 10}}>
+                          <TouchableOpacity style={[styles.modalBtnCancel, { backgroundColor: themeColors.inputBg }]} onPress={() => setImportStep('INFO')}><Text style={{color: themeColors.textLight, fontWeight: '600'}}>Back</Text></TouchableOpacity>
+                          <TouchableOpacity style={[styles.modalBtnAction, { backgroundColor: themeColors.primary }]} onPress={handleVerifyImportOTP} disabled={isImportLoading || importOtp.length < 6}><Text style={{color: '#FFF', fontWeight: 'bold'}}>Verify & Restore</Text></TouchableOpacity>
+                        </View>
+                      </Animated.View>
+                    )}
+
+                    {importStep === 'IMPORTING' && (
                       <View style={{width: '100%', paddingVertical: 20}}>
                          <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8}}>
                             <Text style={{color: themeColors.textDark, fontWeight: '700'}}>{importProgress > 50 ? 'Restoring files...' : 'Loading data...'}</Text>
@@ -732,6 +915,7 @@ export default function SettingsScreen({ navigation }) {
                          <View style={{width: '100%', height: 10, backgroundColor: themeColors.inputBg, borderRadius: 100, overflow: 'hidden'}}><Animated.View style={{width: `${importProgress}%`, height: '100%', backgroundColor: themeColors.primary, borderRadius: 100}} /></View>
                       </View>
                     )}
+
                   </View>
                 </View>
               </TouchableWithoutFeedback>
@@ -778,22 +962,7 @@ export default function SettingsScreen({ navigation }) {
         </View>
       </Modal>
 
-      <Modal hardwareAccelerated={true} statusBarTranslucent={true} visible={showRestartModal} transparent animationType="fade">
-        <View style={StyleSheet.absoluteFill}>
-          <View style={styles.alertOverlayBg}>
-            <View style={[styles.modalContent, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]}>
-              <View style={[styles.pulseCircle, { borderColor: primaryColor + '40', backgroundColor: primaryColor + '10' }]}><View style={[styles.iconCircle, { backgroundColor: primaryColor }]}><Feather name="refresh-cw" size={36} color="#FFF" /></View></View>
-              <Text style={[styles.alertTitle, { color: themeColors.textDark }]}>Restore Complete! 🎉</Text>
-              <Text style={[styles.alertMessage, { color: themeColors.textLight }]}>Your vault data has been successfully imported. The app will now automatically restart to sync your data.</Text>
-              <TouchableOpacity style={{ width: '100%', height: 56, borderRadius: 100, overflow: 'hidden' }} activeOpacity={0.8} onPress={async () => { setShowRestartModal(false); await updateSetting('lockOnExit', true); navigation.reset({ index: 0, routes: [{ name: 'Lock' }] }); }}>
-                <LinearGradient colors={[primaryColor, primaryColor + 'DD']} style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}><Text style={{ color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.5 }}>Restart & Sync</Text></LinearGradient>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* PREMIUM COLOR PICKER MODAL (FLOATING BAR ADDED) */}
+      {/* PREMIUM COLOR PICKER MODAL */}
       <Modal hardwareAccelerated={true} statusBarTranslucent={true} visible={colorPickerModal} animationType="slide" transparent={true}>
         <View style={StyleSheet.absoluteFill}>
           <View style={styles.modalOverlayBottom}>
@@ -809,7 +978,6 @@ export default function SettingsScreen({ navigation }) {
                 </TouchableOpacity>
               </View>
 
-              {/* STICKY LIVE PREVIEW */}
               <View style={{ backgroundColor: isDark ? '#0F172A' : '#F8FAFC', borderRadius: 24, padding: 20, marginBottom: 16, borderWidth: 1, borderColor: isDark ? '#334155' : '#E2E8F0', zIndex: 10 }}>
                 <Text style={{ color: themeColors.textLight, fontSize: 11, fontWeight: '800', letterSpacing: 1.5, marginBottom: 16 }}>LIVE PREVIEW</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -826,10 +994,8 @@ export default function SettingsScreen({ navigation }) {
                 </View>
               </View>
 
-              {/* SMART SCROLL WITH EXTRA BOTTOM PADDING */}
               <ScrollView scrollEnabled={!isColorDragging} contentContainerStyle={{ paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
 
-                {/* PURE NATIVE HUE SLIDER WITH TOUCH LOCK */}
                 <View style={{ marginBottom: 32, marginTop: 10 }}>
                   <Text style={[styles.colorSectionTitle, { color: themeColors.textLight }]}>CUSTOM HUE</Text>
                   <View 
@@ -841,12 +1007,10 @@ export default function SettingsScreen({ navigation }) {
                     style={{ height: 40, borderRadius: 100, overflow: 'hidden', borderWidth: 1, borderColor: isDark ? '#334155' : '#E2E8F0', position: 'relative' }}
                   >
                      <LinearGradient colors={['#FF0000', '#FFFF00', '#00FF00', '#00FFFF', '#0000FF', '#FF00FF', '#FF0000']} start={{x:0, y:0}} end={{x:1, y:0}} style={{ flex: 1 }} pointerEvents="none" />
-                     {/* Hue Indicator Thumb */}
                      <View style={{ position: 'absolute', width: 32, height: 32, borderRadius: 16, backgroundColor: '#FFF', shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 4, elevation: 5, top: 3, left: (currentHue / 360) * hueBarWidth - 16 }} pointerEvents="none" />
                   </View>
                 </View>
 
-                {/* 5 PREMIUM COLORS QUICK SELECT */}
                 <View style={styles.colorSection}>
                   <Text style={[styles.colorSectionTitle, { color: themeColors.textLight }]}>PREMIUM QUICK SELECT</Text>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 5 }}>
@@ -928,7 +1092,6 @@ export default function SettingsScreen({ navigation }) {
                 )}
               </ScrollView>
               
-              {/* 🚀 PREMIUM FLOATING BOTTOM BAR (Reset & Apply Buttons) */}
               <View style={[styles.floatingActionBox, { backgroundColor: isDark ? 'rgba(30, 41, 59, 0.85)' : 'rgba(255, 255, 255, 0.9)', borderColor: isDark ? '#334155' : '#E2E8F0' }]}>
                 <BlurView intensity={20} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
                 
@@ -973,43 +1136,6 @@ export default function SettingsScreen({ navigation }) {
           </View>
         </View>
       </Modal>
-
-      {emailRecoveryModal && (
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[StyleSheet.absoluteFill, { zIndex: 10000, elevation: 10000 }]}>
-          <View style={StyleSheet.absoluteFill}>
-            <View style={styles.alertOverlayBg}>
-              <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', width: '100%' }}>
-                  <View style={[styles.modalContent, { backgroundColor: themeColors.card, width: '100%' }]}>
-                    <View style={{alignItems: 'center', marginBottom: 16}}><Feather name="mail" size={40} color={themeColors.primary} /></View>
-                    <Text style={[styles.modalTitle, {textAlign: 'center', color: themeColors.textDark }]}>Email Recovery</Text>
-
-                    {emailRecoveryStep === 1 ? (
-                      <>
-                        <Text style={{fontSize: 14, color: themeColors.textLight, marginBottom: 20, textAlign: 'center'}}>A 6-digit OTP will be sent to your registered email address.</Text>
-                        <TextInput style={[styles.modalInput, { backgroundColor: themeColors.inputBg, color: themeColors.textDark, marginBottom: 15, letterSpacing: 1 }]} placeholder="Enter Registered Email" placeholderTextColor={themeColors.textLight} value={recoveryEmailInput} onChangeText={setRecoveryEmailInput} autoCapitalize="none" keyboardType="email-address" />
-                        <View style={{flexDirection: 'row', justifyContent: 'space-between', width: '100%', gap: 10}}>
-                          <TouchableOpacity style={[styles.modalBtnCancel, { backgroundColor: themeColors.inputBg }]} onPress={() => setEmailRecoveryModal(false)}><Text style={{color: themeColors.textLight, fontWeight: '600'}}>Cancel</Text></TouchableOpacity>
-                          <TouchableOpacity style={[styles.modalBtnAction, { backgroundColor: themeColors.primary }]} onPress={verifyEmailAndDeviceForRecovery} disabled={isEmailRecovering}><Text style={{color: '#FFF', fontWeight: 'bold'}}>{isEmailRecovering ? "Sending..." : "Send OTP"}</Text></TouchableOpacity>
-                        </View>
-                      </>
-                    ) : (
-                      <>
-                        <Text style={{fontSize: 14, color: themeColors.textLight, marginBottom: 20, textAlign: 'center'}}>Enter the 6-digit OTP sent to your email.</Text>
-                        <TextInput style={[styles.modalInput, { backgroundColor: themeColors.inputBg, color: themeColors.textDark, marginBottom: 15 }]} placeholder="------" placeholderTextColor={themeColors.textLight} value={recoveryOtpInput} onChangeText={setRecoveryOtpInput} keyboardType="number-pad" maxLength={6} />
-                        <View style={{flexDirection: 'row', justifyContent: 'space-between', width: '100%', gap: 10}}>
-                          <TouchableOpacity style={[styles.modalBtnCancel, { backgroundColor: themeColors.inputBg }]} onPress={() => setEmailRecoveryStep(1)}><Text style={{color: themeColors.textLight, fontWeight: '600'}}>Back</Text></TouchableOpacity>
-                          <TouchableOpacity style={[styles.modalBtnAction, { backgroundColor: themeColors.primary }]} onPress={executeReKeyDecryption} disabled={isEmailRecovering || recoveryOtpInput.length < 6}><Text style={{color: '#FFF', fontWeight: 'bold'}}>{isEmailRecovering ? "Verifying..." : "Verify & Restore"}</Text></TouchableOpacity>
-                        </View>
-                      </>
-                    )}
-                  </View>
-                </View>
-              </TouchableWithoutFeedback>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      )}
 
       <Modal hardwareAccelerated={true} statusBarTranslucent={true} visible={timerModal} animationType="fade" transparent={true}>
         <View style={StyleSheet.absoluteFill}>
@@ -1118,12 +1244,25 @@ export default function SettingsScreen({ navigation }) {
         </View>
       </Modal>
 
-      {/* 🚀 MISSING RESET & WIPE VAULT MODAL ADDED HERE */}
+      <Modal hardwareAccelerated={true} statusBarTranslucent={true} visible={showRestartModal} transparent animationType="fade">
+        <View style={StyleSheet.absoluteFill}>
+          <View style={styles.alertOverlayBg}>
+            <View style={[styles.modalContent, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]}>
+              <View style={[styles.pulseCircle, { borderColor: primaryColor + '40', backgroundColor: primaryColor + '10' }]}><View style={[styles.iconCircle, { backgroundColor: primaryColor }]}><Feather name="refresh-cw" size={36} color="#FFF" /></View></View>
+              <Text style={[styles.alertTitle, { color: themeColors.textDark }]}>Restore Complete! 🎉</Text>
+              <Text style={[styles.alertMessage, { color: themeColors.textLight }]}>Your vault data has been successfully imported. The app will now automatically restart.</Text>
+              <TouchableOpacity style={{ width: '100%', height: 56, borderRadius: 100, overflow: 'hidden' }} activeOpacity={0.8} onPress={async () => { setShowRestartModal(false); await updateSetting('lockOnExit', true); navigation.reset({ index: 0, routes: [{ name: 'Lock' }] }); }}>
+                <LinearGradient colors={[primaryColor, primaryColor + 'DD']} style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}><Text style={{ color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.5 }}>Restart App</Text></LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Modal hardwareAccelerated={true} statusBarTranslucent={true} visible={resetStep > 0} animationType="fade" transparent={true}>
         <View style={StyleSheet.absoluteFill}>
           <View style={styles.alertOverlayBg}>
             <View style={[styles.premiumResetModalCompact, { backgroundColor: themeColors.card }]}>
-
               {resetStep === 1 && (
                 <>
                   <View style={styles.resetHeaderRow}>
@@ -1141,14 +1280,12 @@ export default function SettingsScreen({ navigation }) {
                   </View>
                 </>
               )}
-
               {resetStep === 2 && (
                 <View style={{ alignItems: 'center', paddingVertical: 20 }}>
                   <ActivityIndicator size="large" color="#EF4444" style={{ marginBottom: 16, transform: [{scale: 1.5}] }} />
                   <Text style={{ color: themeColors.textDark, fontSize: 18, fontWeight: '800' }}>{wipeStatusText || 'Erasing data...'}</Text>
                 </View>
               )}
-
               {resetStep === 3 && (
                 <View style={{ alignItems: 'center', paddingVertical: 10 }}>
                   <View style={[styles.dangerIconCircle, { backgroundColor: '#ECFDF5' }]}><Feather name="check" size={32} color="#10B981" /></View>
@@ -1159,7 +1296,6 @@ export default function SettingsScreen({ navigation }) {
                   </TouchableOpacity>
                 </View>
               )}
-
             </View>
           </View>
         </View>
@@ -1168,7 +1304,6 @@ export default function SettingsScreen({ navigation }) {
     </View>
   );
 }
-
 
 const ChangeMasterPinModal = ({ visible, onClose, isDark, themeColors, onSaveSuccess }) => {
   const [pinStep, setPinStep] = useState(1);
@@ -1427,7 +1562,6 @@ const styles = StyleSheet.create({
 
   customPickerBtn: { width: '100%', height: 60, borderRadius: 100, borderWidth: 1.5, borderStyle: 'dashed', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 12 },
 
-  // 🚀 NAYA PREMIUM FLOATING BAR STYLE YAHAN HAI
   floatingActionBox: {
     position: 'absolute',
     bottom: 24,

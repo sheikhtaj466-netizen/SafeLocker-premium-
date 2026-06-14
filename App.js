@@ -1,4 +1,7 @@
-import 'react-native-gesture-handler'; // 🚀 STRICT RULE: Ye hamesha line 1 pe hona chahiye!
+import 'react-native-gesture-handler'; 
+import { enableScreens } from 'react-native-screens';
+enableScreens(); // 🔥 MEMORY CRASH FIX: Isko import ke turant baad call karna zaroori hai
+
 import React, { useEffect, useRef, useState } from 'react';
 import { AppState, View, StyleSheet, ActivityIndicator } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -10,7 +13,6 @@ import { ThemeProvider } from './src/ThemeContext';
 import { getSettings } from './src/utils/storage';
 import { initDB } from './src/utils/database'; 
 
-// 🔥 NAVIGATION FIX: Aapka banaya hua AppNavigator yahan import kiya hai
 import AppNavigator from './src/navigation/AppNavigator';
 
 export const navigationRef = createNavigationContainerRef();
@@ -21,19 +23,17 @@ export default function App() {
   
   const [appIsInactive, setAppIsInactive] = useState(false);
   const [blurEnabled, setBlurEnabled] = useState(true);
-
-  // 🔥 LAG & STUCK FIX: Database ready hone tak app ko rokne ke liye state
   const [isDbReady, setIsDbReady] = useState(false);
 
   useEffect(() => {
-    // 🚀 STEP 1: App khulte hi Database ready karo aur WAIT karo
+    // Database Initialization
     const setupDatabase = async () => {
       try {
         await initDB();
-        setIsDbReady(true); // Jab DB ready ho jaye, tabhi app start karo
+        setIsDbReady(true);
       } catch (error) {
         console.error("Database Init Error:", error);
-        setIsDbReady(true); // Error aaye toh bhi app stuck na ho
+        setIsDbReady(true); 
       }
     };
     
@@ -53,7 +53,7 @@ export default function App() {
         setAppIsInactive(true);
       } else {
         setAppIsInactive(false);
-        checkBlurSettings(); // Re-check when coming to foreground
+        checkBlurSettings(); 
       }
 
       // Auto Lock Logic
@@ -90,7 +90,7 @@ export default function App() {
     return () => subscription.remove();
   }, []);
 
-  // 🔥 Jab tak database load nahi hota, loader dikhao
+  // Jab tak database load na ho jaye, loader dikhao
   if (!isDbReady) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#121212' }}>
@@ -104,7 +104,6 @@ export default function App() {
       <SafeAreaProvider>
         <ThemeProvider>
           <NavigationContainer ref={navigationRef}>
-            {/* 🔥 Yahan pura purana stack hatakar apka real AppNavigator daal diya */}
             <AppNavigator />
           </NavigationContainer>
         </ThemeProvider>
